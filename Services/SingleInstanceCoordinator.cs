@@ -13,14 +13,28 @@ internal sealed class SingleInstanceCoordinator : IDisposable
 {
     private readonly string _mutexName;
     private readonly string _pipeName;
+    private static readonly string LogFilePath = Path.Combine(Path.GetTempPath(), "ImgViewer_single_instance.log");
     private Mutex? _mutex;
     private CancellationTokenSource? _cts;
     private Task? _listenerTask;
 
     public SingleInstanceCoordinator(string identifier)
     {
-        _mutexName = $"Global\\{identifier}_Mutex";
-        _pipeName = $"{identifier}_Pipe";
+        _mutexName = $"Local\\{identifier}_Mutex";
+        _pipeName = $"{identifier}_Pipe_{Environment.UserName}";
+        ClearLog();
+        Log($"Coordinator initialized. Mutex={_mutexName}, Pipe={_pipeName}");
+    }
+
+    private static void ClearLog()
+    {
+        try
+        {
+            File.WriteAllText(LogFilePath, string.Empty);
+        }
+        catch
+        {
+        }
     }
 
     public async Task<bool> TryStartAsync(string[] argsToForward, Func<string[], Task> onArgumentsReceived)
@@ -30,9 +44,11 @@ internal sealed class SingleInstanceCoordinator : IDisposable
         {
             mutex.Dispose();
             await NotifyPrimaryAsync(argsToForward ?? Array.Empty<string>());
+            Log("Secondary instance detected. Forwarding arguments...");
             return false;
         }
 
+        Log("Primary instance started. Beginning pipe listener.");
         _mutex = mutex;
         _cts = new CancellationTokenSource();
         _listenerTask = ListenAsync(onArgumentsReceived, _cts.Token);
@@ -70,16 +86,19 @@ internal sealed class SingleInstanceCoordinator : IDisposable
                     PipeOptions.Asynchronous);
 
                 await server.WaitForConnectionAsync(token).ConfigureAwait(false);
+                Log("Primary instance: client connected.");
                 var args = await ReadArgumentsAsync(server, token).ConfigureAwait(false);
+                Log($"Primary instance: received {args.Length} arguments.");
                 await handler(args).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
+                Log("Listener cancelled.");
                 break;
             }
-            catch
+            catch (Exception ex)
             {
-                // 待受を継続
+                Log($"Listener error: {ex.Message}");
             }
         }
     }
@@ -121,20 +140,38 @@ internal sealed class SingleInstanceCoordinator : IDisposable
         var payload = JsonSerializer.Serialize(args ?? Array.Empty<string>());
         var bytes = Encoding.UTF8.GetBytes(payload);
 
-        for (var attempt = 0; attempt < 3; attempt++)
+        for (var attempt = 0; attempt < 5; attempt++)
         {
             try
             {
                 using var client = new NamedPipeClientStream(".", _pipeName, PipeDirection.Out);
-                client.Connect(1000);
+                client.Connect(3000);
                 await client.WriteAsync(bytes.AsMemory(0, bytes.Length)).ConfigureAwait(false);
                 await client.FlushAsync().ConfigureAwait(false);
+                Log($"Arguments forwarded successfully on attempt {attempt + 1}.");
                 return;
             }
-            catch
+            catch (Exception ex)
             {
-                await Task.Delay(150).ConfigureAwait(false);
+                Log($"Forward attempt {attempt + 1} failed: {ex.Message}");
+                await Task.Delay(200).ConfigureAwait(false);
             }
+        }
+
+        Log("Failed to forward arguments after all attempts.");
+    }
+
+    private static void Log(string message)
+    {
+        try
+        {
+            File.AppendAllText(
+                LogFilePath,
+                $"{DateTime.Now:O} [PID {Environment.ProcessId}] {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // logging best-effort
         }
     }
 }
