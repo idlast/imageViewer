@@ -6,7 +6,14 @@
              mc:Ignorable="d"
              d:DesignHeight="450" d:DesignWidth="800"
              PreviewMouseWheel="OnPreviewMouseWheel">
-    <Grid Background="Transparent">
+    <Grid x:Name="RootHost" Background="Transparent">
+        <Grid.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="ウィンドウに合わせる(_F)"
+                          Click="OnFitToWindowClick"
+                          IsEnabled="{Binding IsZoomed}"/>
+            </ContextMenu>
+        </Grid.ContextMenu>
         <!-- ローディング表示 -->
         <TextBlock Text="読み込み中..."
                    HorizontalAlignment="Center"
@@ -26,7 +33,8 @@
 
         <!-- 画像表示：未ズーム時はフィット、ズーム時はスクロール -->
         <Grid Visibility="{Binding Image, Converter={StaticResource NullToVisibility}}">
-            <Viewbox Visibility="{Binding IsZoomed, Converter={StaticResource InverseBoolToVisibility}}"
+            <Viewbox x:Name="FitViewbox"
+                     Visibility="{Binding IsZoomed, Converter={StaticResource InverseBoolToVisibility}}"
                      Stretch="Uniform"
                      HorizontalAlignment="Center"
                      VerticalAlignment="Center">
@@ -34,9 +42,14 @@
                        RenderOptions.BitmapScalingMode="HighQuality"/>
             </Viewbox>
 
-            <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto"
-                          Visibility="{Binding IsZoomed, Converter={StaticResource BoolToVisibility}}">
+                 <ScrollViewer x:Name="ZoomScrollViewer"
+                         HorizontalScrollBarVisibility="Hidden"
+                         VerticalScrollBarVisibility="Hidden"
+                         Visibility="{Binding IsZoomed, Converter={StaticResource BoolToVisibility}}"
+                         PreviewMouseLeftButtonDown="OnScrollViewerMouseDown"
+                         PreviewMouseLeftButtonUp="OnScrollViewerMouseUp"
+                         PreviewMouseMove="OnScrollViewerMouseMove"
+                         MouseLeave="OnScrollViewerMouseLeave">
                 <Image Source="{Binding Image}"
                        Stretch="None"
                        RenderOptions.BitmapScalingMode="HighQuality"

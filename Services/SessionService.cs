@@ -21,6 +21,7 @@ public class SessionService : ISessionService
 
     public async Task SaveSessionAsync(SessionData session)
     {
+        session.ZoomStepPercent = NormalizeZoomStep(session.ZoomStepPercent);
         var directory = Path.GetDirectoryName(SessionFilePath)!;
         if (!Directory.Exists(directory))
         {
@@ -47,6 +48,7 @@ public class SessionService : ISessionService
         }
 
         session.OpenTabs = session.OpenTabs.Where(File.Exists).ToList();
+        session.ZoomStepPercent = NormalizeZoomStep(session.ZoomStepPercent);
 
         if (session.ActiveTabIndex >= session.OpenTabs.Count)
         {
@@ -75,5 +77,15 @@ public class SessionService : ISessionService
         session.WindowHeight = Math.Max(200, Math.Min(session.WindowHeight, screenHeight));
         session.WindowLeft = Math.Max(0, Math.Min(session.WindowLeft, screenWidth - 100));
         session.WindowTop = Math.Max(0, Math.Min(session.WindowTop, screenHeight - 100));
+    }
+
+    private static int NormalizeZoomStep(int value)
+    {
+        return value switch
+        {
+            10 => 10,
+            20 => 20,
+            _ => 4
+        };
     }
 }

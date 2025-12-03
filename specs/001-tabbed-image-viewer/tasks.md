@@ -164,6 +164,47 @@
 
 ---
 
+## Phase 9: User Story 6 - タブ右クリックメニュー (Priority: P2)
+
+**Goal**: タブを右クリックしてコンテキストメニューから効率的にタブを閉じる
+
+**Independent Test**: 
+- タブを右クリックしてメニューが表示される
+- 各メニュー項目が正しく動作する
+
+### Implementation for User Story 6
+
+- [x] T055 [US6] MainViewModel に CloseTabsToTheRightCommand を追加
+- [x] T056 [US6] MainViewModel に CloseOtherTabsCommand を追加
+- [x] T057 [US6] MainWindow.xaml の TabItem に ContextMenu を追加
+- [x] T058 [US6] 右クリック対象タブを特定するロジックを実装（ContextMenu.Tag バインディング）
+- [x] T059 [US6] メニュー項目の有効/無効制御を実装（CanExecute）
+
+**Checkpoint**: タブ右クリックメニューが動作する状態
+
+---
+
+## Phase 10: User Story 7 - 画像ドラッグスクロール (Priority: P2)
+
+**Goal**: 拡大時にスクロールバーを廃止し、左クリック+ドラッグで画像をスクロール
+
+**Independent Test**: 
+- 拡大した画像を左クリック+ドラッグでスクロールできる
+- スクロールバーが表示されない
+
+### Implementation for User Story 7
+
+- [x] T060 [US7] ImageTabView.xaml の ScrollViewer からスクロールバーを非表示に変更
+- [x] T061 [US7] ImageTabViewModel に ScrollOffsetX / ScrollOffsetY プロパティを追加
+- [x] T062 [US7] ImageTabView.xaml.cs にドラッグ開始位置の追跡ロジックを追加
+- [x] T063 [US7] MouseMove イベントでスクロール位置を更新するロジックを実装
+- [x] T064 [US7] ドラッグ中のカーソルを Hand に変更
+- [x] T065 [US7] MouseUp / MouseLeave でドラッグ終了処理を実装
+
+**Checkpoint**: ドラッグスクロールが動作する状態
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -214,7 +255,7 @@ Phase 3 完了後:
 
 | 項目 | 値 |
 |------|-----|
-| 総タスク数 | 54 |
+| 総タスク数 | 65 |
 | Phase 1 (セットアップ) | 4 タスク |
 | Phase 2 (基盤構築) | 8 タスク |
 | Phase 3 (US1 & US2) | 13 タスク |
@@ -223,5 +264,7 @@ Phase 3 完了後:
 | Phase 6 (US4) | 5 タスク |
 | Phase 7 (仕上げ) | 6 タスク |
 | Phase 8 (既定アプリ) | 3 タスク |
+| Phase 9 (タブ右クリックメニュー) | 5 タスク |
+| Phase 10 (ドラッグスクロール) | 6 タスク |
 | 並列可能タスク | 23 タスク（[P] マーク付き） |
 | MVP タスク数 | 25 タスク（Phase 1〜3） |

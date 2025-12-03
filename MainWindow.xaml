@@ -40,6 +40,24 @@
                 <MenuItem Header="拡大(_I)" Command="{Binding ZoomInCommand}" InputGestureText="Ctrl++"/>
                 <MenuItem Header="縮小(_O)" Command="{Binding ZoomOutCommand}" InputGestureText="Ctrl+-"/>
                 <MenuItem Header="ズームをリセット(_R)" Command="{Binding ResetZoomCommand}" InputGestureText="Ctrl+0"/>
+                <Separator/>
+                <MenuItem Header="ズーム刻み(_S)">
+                    <MenuItem Header="4% (細かい)"
+                              IsCheckable="True"
+                              IsChecked="{Binding ZoomStepPercent, Converter={StaticResource EqualsConverter}, ConverterParameter=4}"
+                              Command="{Binding SetZoomStepCommand}"
+                              CommandParameter="4"/>
+                    <MenuItem Header="10% (標準)"
+                              IsCheckable="True"
+                              IsChecked="{Binding ZoomStepPercent, Converter={StaticResource EqualsConverter}, ConverterParameter=10}"
+                              Command="{Binding SetZoomStepCommand}"
+                              CommandParameter="10"/>
+                    <MenuItem Header="20% (素早い)"
+                              IsCheckable="True"
+                              IsChecked="{Binding ZoomStepPercent, Converter={StaticResource EqualsConverter}, ConverterParameter=20}"
+                              Command="{Binding SetZoomStepCommand}"
+                              CommandParameter="20"/>
+                </MenuItem>
             </MenuItem>
         </Menu>
 
@@ -56,6 +74,26 @@
                     <Setter Property="Background" Value="Transparent"/>
                 </Style>
             </TabControl.Resources>
+            <TabControl.ItemContainerStyle>
+                <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
+                    <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=TabControl}}"/>
+                    <Setter Property="ContextMenu">
+                        <Setter.Value>
+                            <ContextMenu>
+                                <MenuItem Header="タブを閉じる"
+                                          Command="{Binding PlacementTarget.Tag.CloseTabCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="右側のタブをすべて閉じる"
+                                          Command="{Binding PlacementTarget.Tag.CloseTabsToTheRightCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="ほかのタブをすべて閉じる"
+                                          Command="{Binding PlacementTarget.Tag.CloseOtherTabsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            </ContextMenu>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </TabControl.ItemContainerStyle>
             <TabControl.Template>
                 <ControlTemplate TargetType="TabControl">
                     <Grid>
