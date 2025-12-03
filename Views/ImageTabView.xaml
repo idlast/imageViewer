@@ -1,0 +1,52 @@
+<UserControl x:Class="ImgViewer.Views.ImageTabView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignHeight="450" d:DesignWidth="800"
+             PreviewMouseWheel="OnPreviewMouseWheel">
+    <Grid Background="Transparent">
+        <!-- ローディング表示 -->
+        <TextBlock Text="読み込み中..."
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   FontSize="16"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}"/>
+
+        <!-- エラー表示 -->
+        <TextBlock Text="{Binding LoadError, StringFormat='エラー: {0}'}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   FontSize="14"
+                   Foreground="#FF5555"
+                   TextWrapping="Wrap"
+                   Visibility="{Binding LoadError, Converter={StaticResource NullToVisibility}}"/>
+
+        <!-- 画像表示：未ズーム時はフィット、ズーム時はスクロール -->
+        <Grid Visibility="{Binding Image, Converter={StaticResource NullToVisibility}}">
+            <Viewbox Visibility="{Binding IsZoomed, Converter={StaticResource InverseBoolToVisibility}}"
+                     Stretch="Uniform"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center">
+                <Image Source="{Binding Image}"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Viewbox>
+
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding IsZoomed, Converter={StaticResource BoolToVisibility}}">
+                <Image Source="{Binding Image}"
+                       Stretch="None"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       RenderTransformOrigin="0.5,0.5">
+                    <Image.LayoutTransform>
+                        <ScaleTransform ScaleX="{Binding ZoomLevel}"
+                                        ScaleY="{Binding ZoomLevel}"/>
+                    </Image.LayoutTransform>
+                </Image>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>
