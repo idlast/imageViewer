@@ -2,7 +2,7 @@ namespace ImgViewer.Models;
 
 public class SessionData
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public int Version { get; set; } = CurrentVersion;
     public double WindowWidth { get; set; } = 800;
@@ -12,4 +12,5 @@ public class SessionData
     public bool IsMaximized { get; set; }
     public List<string> OpenTabs { get; set; } = [];
     public int ActiveTabIndex { get; set; }
+    public int ZoomStepPercent { get; set; } = 4;
 }
