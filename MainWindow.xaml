@@ -116,12 +116,28 @@
             </TabControl.Template>
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="{x:Type vm:ImageTabViewModel}">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"/>
-                        <Button Style="{StaticResource TabCloseButtonStyle}"
-                                Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=TabControl}}"
-                                CommandParameter="{Binding}"/>
-                    </StackPanel>
+                    <Grid ClipToBounds="True" MinHeight="28">
+                        <Image Source="{Binding Thumbnail}"
+                               Stretch="UniformToFill"
+                               Opacity="0.18"
+                               IsHitTestVisible="False"/>
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Bottom"
+                                    HorizontalAlignment="Left"
+                                    Margin="2,2,2,0">
+                            <Border Background="#C0000000"
+                                    Padding="4,1"
+                                    CornerRadius="4">
+                                <TextBlock Text="{Binding FileName}"
+                                           VerticalAlignment="Center"
+                                           Foreground="White"/>
+                            </Border>
+                            <Button Style="{StaticResource TabCloseButtonStyle}"
+                                    Margin="4,0,0,0"
+                                    Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=TabControl}}"
+                                    CommandParameter="{Binding}"/>
+                        </StackPanel>
+                    </Grid>
                 </DataTemplate>
             </TabControl.ItemTemplate>
             <TabControl.ContentTemplate>
