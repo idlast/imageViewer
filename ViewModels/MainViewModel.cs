@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.Linq;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -36,10 +38,20 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isMaximized;
 
+    [ObservableProperty]
+    private int _zoomStepPercent = 4;
+
     public MainViewModel(IImageService imageService, ISessionService sessionService)
     {
         _imageService = imageService;
         _sessionService = sessionService;
+        Tabs.CollectionChanged += OnTabsCollectionChanged;
+    }
+
+    private void OnTabsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        CloseTabsToTheRightCommand.NotifyCanExecuteChanged();
+        CloseOtherTabsCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -78,10 +90,64 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanCloseTabsToTheRight))]
+    private void CloseTabsToTheRight(ImageTabViewModel? tab)
+    {
+        if (tab is null) return;
+
+        var index = Tabs.IndexOf(tab);
+        if (index < 0) return;
+
+        for (var i = Tabs.Count - 1; i > index; i--)
+        {
+            Tabs.RemoveAt(i);
+        }
+
+        SelectedTab = tab;
+    }
+
+    private bool CanCloseTabsToTheRight(ImageTabViewModel? tab)
+    {
+        if (tab is null) return false;
+        var index = Tabs.IndexOf(tab);
+        return index >= 0 && index < Tabs.Count - 1;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCloseOtherTabs))]
+    private void CloseOtherTabs(ImageTabViewModel? tab)
+    {
+        if (tab is null) return;
+
+        for (var i = Tabs.Count - 1; i >= 0; i--)
+        {
+            if (!ReferenceEquals(Tabs[i], tab))
+            {
+                Tabs.RemoveAt(i);
+            }
+        }
+
+        SelectedTab = tab;
+    }
+
+    private bool CanCloseOtherTabs(ImageTabViewModel? tab)
+    {
+        return tab is not null && Tabs.Count > 1;
+    }
+
     [RelayCommand]
     private void ToggleAlwaysOnTop()
     {
         IsAlwaysOnTop = !IsAlwaysOnTop;
+    }
+
+    [RelayCommand]
+    private void SetZoomStep(object? parameter)
+    {
+        var target = NormalizeZoomStep(ParseZoomParameter(parameter));
+        if (target != ZoomStepPercent)
+        {
+            ZoomStepPercent = target;
+        }
     }
 
     [RelayCommand]
@@ -102,25 +168,27 @@ public partial class MainViewModel : ObservableObject
         SelectedTab?.ResetZoom();
     }
 
-    public async Task AddTabAsync(string filePath)
+    public async Task<ImageTabViewModel?> AddTabAsync(string filePath)
     {
         if (!_imageService.IsSupportedFormat(filePath))
         {
             MessageBox.Show($"サポートされていないファイル形式です: {filePath}", "エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            return null;
         }
 
         var existingTab = Tabs.FirstOrDefault(t => t.FilePath == filePath);
         if (existingTab is not null)
         {
             SelectedTab = existingTab;
-            return;
+            return existingTab;
         }
 
         var tab = new ImageTabViewModel(filePath, _imageService);
+        tab.ZoomStepPercent = ZoomStepPercent;
         Tabs.Add(tab);
         SelectedTab = tab;
         await tab.LoadImageAsync();
+        return tab;
     }
 
     public async Task RestoreSessionAsync()
@@ -132,6 +200,7 @@ public partial class MainViewModel : ObservableObject
         WindowLeft = session.WindowLeft;
         WindowTop = session.WindowTop;
         IsMaximized = session.IsMaximized;
+        ZoomStepPercent = NormalizeZoomStep(session.ZoomStepPercent);
 
         foreach (var filePath in session.OpenTabs)
         {
@@ -154,7 +223,8 @@ public partial class MainViewModel : ObservableObject
             WindowTop = WindowTop,
             IsMaximized = IsMaximized,
             OpenTabs = Tabs.Select(t => t.FilePath).ToList(),
-            ActiveTabIndex = SelectedTab is not null ? Tabs.IndexOf(SelectedTab) : 0
+            ActiveTabIndex = SelectedTab is not null ? Tabs.IndexOf(SelectedTab) : 0,
+            ZoomStepPercent = ZoomStepPercent
         };
 
         await _sessionService.SaveSessionAsync(session);
@@ -174,5 +244,40 @@ public partial class MainViewModel : ObservableObject
         {
             _ = value.LoadImageAsync();
         }
+    }
+
+    partial void OnZoomStepPercentChanged(int value)
+    {
+        var normalized = NormalizeZoomStep(value);
+        if (normalized != value)
+        {
+            ZoomStepPercent = normalized;
+            return;
+        }
+
+        foreach (var tab in Tabs)
+        {
+            tab.ZoomStepPercent = normalized;
+        }
+    }
+
+    private static int ParseZoomParameter(object? parameter)
+    {
+        return parameter switch
+        {
+            int value => value,
+            string text when int.TryParse(text, out var parsed) => parsed,
+            _ => 4
+        };
+    }
+
+    private static int NormalizeZoomStep(int value)
+    {
+        return value switch
+        {
+            10 => 10,
+            20 => 20,
+            _ => 4
+        };
     }
 }
