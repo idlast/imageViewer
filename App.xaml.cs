@@ -56,10 +56,20 @@ public partial class App : Application
     private static async Task HandleExternalArgumentsAsync(IEnumerable<string> args, MainViewModel viewModel)
     {
         var files = args.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase);
+        ImageTabViewModel? lastOpenedTab = null;
 
         foreach (var file in files)
         {
-            await viewModel.AddTabAsync(file);
+            var tab = await viewModel.AddTabAsync(file);
+            if (tab is not null)
+            {
+                lastOpenedTab = tab;
+            }
+        }
+
+        if (lastOpenedTab is not null)
+        {
+            viewModel.SelectedTab = lastOpenedTab;
         }
 
         if (Current?.MainWindow is not Window mainWindow)

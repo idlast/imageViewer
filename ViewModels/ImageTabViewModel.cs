@@ -24,6 +24,15 @@ public partial class ImageTabViewModel : ObservableObject
     [ObservableProperty]
     private bool _isZoomed;
 
+    [ObservableProperty]
+    private double _scrollOffsetX;
+
+    [ObservableProperty]
+    private double _scrollOffsetY;
+
+    [ObservableProperty]
+    private int _zoomStepPercent = 4;
+
     public string FilePath { get; }
     public string FileName => System.IO.Path.GetFileName(FilePath);
 
@@ -56,13 +65,13 @@ public partial class ImageTabViewModel : ObservableObject
 
     public void ZoomIn()
     {
-        ZoomLevel = Math.Min(10.0, ZoomLevel * 1.2);
+        ZoomLevel = Math.Min(10.0, ZoomLevel * GetZoomStepFactor());
         IsZoomed = true;
     }
 
     public void ZoomOut()
     {
-        ZoomLevel = Math.Max(0.1, ZoomLevel / 1.2);
+        ZoomLevel = Math.Max(0.1, ZoomLevel / GetZoomStepFactor());
         IsZoomed = true;
     }
 
@@ -70,5 +79,31 @@ public partial class ImageTabViewModel : ObservableObject
     {
         ZoomLevel = 1.0;
         IsZoomed = false;
+    }
+
+    public void UpdateScrollOffsets(double horizontal, double vertical)
+    {
+        ScrollOffsetX = horizontal;
+        ScrollOffsetY = vertical;
+    }
+
+    private void ResetScrollOffsets()
+    {
+        ScrollOffsetX = 0;
+        ScrollOffsetY = 0;
+    }
+
+    partial void OnIsZoomedChanged(bool value)
+    {
+        if (!value)
+        {
+            ResetScrollOffsets();
+        }
+    }
+
+    private double GetZoomStepFactor()
+    {
+        var percent = Math.Clamp(ZoomStepPercent, 1, 100);
+        return 1.0 + (percent / 100.0);
     }
 }
