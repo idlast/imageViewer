@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ImgViewer.Models;
@@ -11,6 +12,9 @@ public partial class ImageTabViewModel : ObservableObject
 
     [ObservableProperty]
     private BitmapSource? _image;
+
+    [ObservableProperty]
+    private BitmapSource? _thumbnail;
 
     [ObservableProperty]
     private bool _isLoading;
@@ -52,6 +56,7 @@ public partial class ImageTabViewModel : ObservableObject
         try
         {
             Image = await _imageService.LoadImageAsync(FilePath);
+            Thumbnail = CreateThumbnail(Image);
         }
         catch (Exception ex)
         {
@@ -105,5 +110,23 @@ public partial class ImageTabViewModel : ObservableObject
     {
         var percent = Math.Clamp(ZoomStepPercent, 1, 100);
         return 1.0 + (percent / 100.0);
+    }
+
+    private static BitmapSource? CreateThumbnail(BitmapSource? source)
+    {
+        if (source is null) return null;
+
+        const double targetMaxDimension = 96.0;
+        var maxDimension = Math.Max(source.PixelWidth, source.PixelHeight);
+        if (maxDimension <= 0 || maxDimension <= targetMaxDimension)
+        {
+            return source;
+        }
+
+        var scale = targetMaxDimension / maxDimension;
+        var transform = new ScaleTransform(scale, scale);
+        var transformed = new TransformedBitmap(source, transform);
+        transformed.Freeze();
+        return transformed;
     }
 }
