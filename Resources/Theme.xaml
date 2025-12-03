@@ -59,7 +59,7 @@
         <Setter Property="Background" Value="{StaticResource TabBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="Padding" Value="0"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TabItem">
@@ -72,9 +72,9 @@
                         <Grid>
                             <ContentPresenter x:Name="contentPresenter"
                                               ContentSource="Header"
-                                              HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}"/>
+                                              HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Stretch"
+                                              Margin="0"/>
                             <!-- Active Indicator (Top Line) -->
                             <Rectangle x:Name="indicator"
                                        Height="2"
