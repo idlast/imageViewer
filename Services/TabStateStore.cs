@@ -145,7 +145,7 @@ public sealed class TabStateStore
         get { lock (_lock) return _state; }
     }
 
-    public void Apply(Func<AppState, AppState> mutation)
+    public void Apply(Func<AppState, AppState> mutation, bool isSessionRestore = false)
     {
         AppState oldState;
         AppState newState;
@@ -159,24 +159,26 @@ public sealed class TabStateStore
 
         if (!ReferenceEquals(oldState, newState))
         {
-            StateChanged?.Invoke(this, new StateChangedEventArgs(oldState, newState));
+            StateChanged?.Invoke(this, new StateChangedEventArgs(oldState, newState, isSessionRestore));
         }
     }
 
-    public void SetState(AppState state)
+    public void SetState(AppState state, bool isSessionRestore = false)
     {
-        Apply(_ => state);
+        Apply(_ => state, isSessionRestore);
     }
 }
 
 public sealed class StateChangedEventArgs : EventArgs
 {
-    public StateChangedEventArgs(AppState oldState, AppState newState)
+    public StateChangedEventArgs(AppState oldState, AppState newState, bool isSessionRestore = false)
     {
         OldState = oldState;
         NewState = newState;
+        IsSessionRestore = isSessionRestore;
     }
 
     public AppState OldState { get; }
     public AppState NewState { get; }
+    public bool IsSessionRestore { get; }
 }
