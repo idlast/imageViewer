@@ -1,18 +1,23 @@
-﻿using System;
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using ImgViewer.Services;
 using ImgViewer.ViewModels;
 
 namespace ImgViewer;
 
 public partial class MainWindow : Window
 {
+    private static readonly string UiLogPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ImgViewer_ui.log");
+    private const double DragScrollEdgeThreshold = 36;
+    private const double DragScrollStep = 18;
     private MainViewModel ViewModel => (MainViewModel)DataContext;
     private TabPanel? _tabStripPanel;
+    private ScrollViewer? _tabHeaderScrollViewer;
     private TabItem? _tabDragSourceItem;
     private ImageTabViewModel? _tabDragSourceViewModel;
     private TranslateTransform? _tabDragTransform;
@@ -21,22 +26,127 @@ public partial class MainWindow : Window
     private double _tabDragBaseLeft;
     private int _tabDragOriginalIndex;
     private int _tabDragCurrentIndex;
+    private bool _suppressSelectionChanged;
+    
+    private TabItem? _pendingDragItem;
+    private ImageTabViewModel? _pendingDragViewModel;
+    private Point _pendingDragStartPoint;
 
     public MainWindow()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        try
+        {
+            System.IO.File.WriteAllText(UiLogPath, string.Empty);
+        }
+        catch
+        {
+        }
     }
 
-    private async void OnDrop(object sender, DragEventArgs e)
+    private static void LogUi(string message)
+    {
+        try
+        {
+            var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}{Environment.NewLine}";
+            System.IO.File.AppendAllText(UiLogPath, line);
+        }
+        catch
+        {
+        }
+    }
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is MainViewModel oldVm)
+        {
+            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+        if (e.NewValue is MainViewModel newVm)
+        {
+            newVm.PropertyChanged += OnViewModelPropertyChanged;
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.SelectedTab))
+        {
+            LogUi($"PropertyChanged -> SelectedTab={ViewModel.SelectedTab?.FileName ?? "<null>"}");
+            SyncTabControlSelection();
+        }
+    }
+
+    private void SyncTabControlSelection()
+    {
+        var selectedTab = ViewModel.SelectedTab;
+        if (selectedTab is null)
+        {
+            LogUi("SyncTabControlSelection: SelectedTab is null");
+            return;
+        }
+
+        var index = ViewModel.Tabs.IndexOf(selectedTab);
+        LogUi($"SyncTabControlSelection: target index={index}, current index={MainTabControl.SelectedIndex}");
+        if (index >= 0 && MainTabControl.SelectedIndex != index)
+        {
+            try
+            {
+                _suppressSelectionChanged = true;
+                MainTabControl.SelectedIndex = index;
+                LogUi($"  -> Programmatic select index {index}");
+                EnsureTabContainerVisible(index);
+            }
+            finally
+            {
+                _suppressSelectionChanged = false;
+            }
+        }
+        else if (index >= 0)
+        {
+            EnsureTabContainerVisible(index);
+        }
+    }
+
+    private void OnTabSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var vm = MainTabControl.SelectedItem as ImageTabViewModel;
+        LogUi($"OnTabSelectionChanged: index={MainTabControl.SelectedIndex}, tab={vm?.FileName ?? "<null>"}, suppress={_suppressSelectionChanged}");
+        if (!_suppressSelectionChanged)
+        {
+            EnsureTabContainerVisible(MainTabControl.SelectedIndex);
+        }
+    }
+
+    private void EnsureTabContainerVisible(int index)
+    {
+        if (index < 0)
+        {
+            return;
+        }
+
+        EnsureTabStripPanel();
+
+        MainTabControl.UpdateLayout();
+        if (MainTabControl.ItemContainerGenerator.ContainerFromIndex(index) is TabItem tab)
+        {
+            LogUi($"EnsureTabContainerVisible: focusing tab {tab.Header ?? tab.Content}" );
+            if (!tab.IsFocused)
+            {
+                tab.Focus();
+            }
+            tab.BringIntoView();
+            EnsureTabIsWithinScrollViewport(tab);
+        }
+    }
+
+    private void OnDrop(object sender, DragEventArgs e)
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
 
         var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-        foreach (var file in files)
-        {
-            await ViewModel.AddTabAsync(file);
-        }
+        ViewModel.Enqueue(new OpenFilesCommand(files, TabCommandSource.UserAction));
     }
 
     private void OnDragOver(object sender, DragEventArgs e)
@@ -56,7 +166,7 @@ public partial class MainWindow : Window
 
         if (IsCloseButton(e.OriginalSource as DependencyObject))
         {
-            ResetTabDragState();
+            ClearPendingDrag();
             return;
         }
 
@@ -65,65 +175,86 @@ public partial class MainWindow : Window
             return;
         }
 
-        _tabDragSourceItem = tabItem;
-        _tabDragSourceViewModel = tabItem.DataContext as ImageTabViewModel;
-        _tabDragTransform = EnsureTranslateTransform(tabItem);
-        _tabDragTransform.BeginAnimation(TranslateTransform.XProperty, null);
-        _tabDragTransform.X = 0;
+        _pendingDragItem = tabItem;
+        _pendingDragViewModel = tabItem.DataContext as ImageTabViewModel;
+        _pendingDragStartPoint = e.GetPosition(_tabStripPanel);
+    }
 
-        _tabDragStartPointPanel = e.GetPosition(_tabStripPanel);
-        _tabDragBaseLeft = tabItem.TranslatePoint(new Point(0, 0), _tabStripPanel).X;
-        _isTabDragActive = false;
+    private void ClearPendingDrag()
+    {
+        _pendingDragItem = null;
+        _pendingDragViewModel = null;
+        _pendingDragStartPoint = default;
     }
 
     private void OnTabPreviewMouseMove(object sender, MouseEventArgs e)
     {
-        if (_tabStripPanel is null || _tabDragSourceItem is null || _tabDragSourceViewModel is null)
+        if (e.LeftButton != MouseButtonState.Pressed)
         {
+            if (_isTabDragActive)
+            {
+                CompleteTabDrag();
+            }
+            ClearPendingDrag();
             return;
         }
 
-        if (e.LeftButton != MouseButtonState.Pressed)
+        if (_isTabDragActive)
         {
-            CompleteTabDrag();
+            if (_tabStripPanel is null || _tabDragTransform is null || _tabDragSourceItem is null)
+            {
+                return;
+            }
+            UpdateTabDrag(e.GetPosition(_tabStripPanel));
+            return;
+        }
+
+        if (_pendingDragItem is null || _pendingDragViewModel is null || _tabStripPanel is null)
+        {
             return;
         }
 
         var pointer = e.GetPosition(_tabStripPanel);
-
-        if (!_isTabDragActive)
-        {
-            var delta = pointer - _tabDragStartPointPanel;
-            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
-                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
-            {
-                return;
-            }
-
-            BeginTabDrag(pointer);
-        }
-
-        if (!_isTabDragActive)
+        var delta = pointer - _pendingDragStartPoint;
+        if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
         {
             return;
         }
 
-        UpdateTabDrag(pointer);
+        _tabDragSourceItem = _pendingDragItem;
+        _tabDragSourceViewModel = _pendingDragViewModel;
+        _tabDragTransform = EnsureTranslateTransform(_tabDragSourceItem);
+        _tabDragTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        _tabDragTransform.X = 0;
+        _tabDragStartPointPanel = _pendingDragStartPoint;
+        _tabDragBaseLeft = _tabDragSourceItem.TranslatePoint(new Point(0, 0), _tabStripPanel).X;
+        
+        ClearPendingDrag();
+        BeginTabDrag(pointer);
     }
 
     private void OnTabPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        CompleteTabDrag();
+        ClearPendingDrag();
+        if (_isTabDragActive)
+        {
+            CompleteTabDrag();
+        }
     }
 
     private void OnTabLostMouseCapture(object sender, MouseEventArgs e)
     {
-        CompleteTabDrag();
+        ClearPendingDrag();
+        if (_isTabDragActive)
+        {
+            CompleteTabDrag();
+        }
     }
 
-    private async void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
+    private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
     {
-        await ViewModel.SaveSessionAsync();
+        ViewModel.SaveSession();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
@@ -172,6 +303,8 @@ public partial class MainWindow : Window
         {
             TrySwapWithNeighbor(_tabDragCurrentIndex - 1, dragCenter, pointerPosition, movingRight: false);
         }
+
+        AutoScrollTabStrip(pointerPosition);
     }
 
     private void TrySwapWithNeighbor(int neighborIndex, double dragCenter, Point pointerPosition, bool movingRight)
@@ -261,12 +394,17 @@ public partial class MainWindow : Window
 
     private bool EnsureTabStripPanel()
     {
-        if (_tabStripPanel is not null)
+        if (_tabStripPanel is null)
         {
-            return true;
+            _tabStripPanel = FindVisualChild<TabPanel>(MainTabControl);
         }
 
-        _tabStripPanel = FindVisualChild<TabPanel>(MainTabControl);
+        if (_tabHeaderScrollViewer is null)
+        {
+            MainTabControl.ApplyTemplate();
+            _tabHeaderScrollViewer = MainTabControl.Template.FindName("HeaderScrollViewer", MainTabControl) as ScrollViewer;
+        }
+
         return _tabStripPanel is not null;
     }
 
@@ -346,36 +484,69 @@ public partial class MainWindow : Window
         return transform;
     }
 
-    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private void EnsureTabIsWithinScrollViewport(TabItem tab)
     {
-        if (e.OldValue is MainViewModel oldViewModel)
-        {
-            oldViewModel.TabMoved -= OnTabMoved;
-        }
-
-        if (e.NewValue is MainViewModel newViewModel)
-        {
-            newViewModel.TabMoved += OnTabMoved;
-        }
-    }
-
-    private void OnTabMoved(object? sender, TabMovedEventArgs e)
-    {
-        if (DataContext is not MainViewModel viewModel)
+        if (_tabStripPanel is null || _tabHeaderScrollViewer is null)
         {
             return;
         }
 
-        viewModel.SelectedTab = e.Tab;
-    }
+        var tabLeft = tab.TranslatePoint(new Point(0, 0), _tabStripPanel).X;
+        var tabRight = tabLeft + tab.ActualWidth;
+        var offset = _tabHeaderScrollViewer.HorizontalOffset;
+        var viewport = _tabHeaderScrollViewer.ViewportWidth;
 
-    protected override void OnClosed(EventArgs e)
-    {
-        if (DataContext is MainViewModel viewModel)
+        if (viewport <= 0)
         {
-            viewModel.TabMoved -= OnTabMoved;
+            return;
         }
 
-        base.OnClosed(e);
+        if (tabLeft < offset)
+        {
+            _tabHeaderScrollViewer.ScrollToHorizontalOffset(tabLeft);
+        }
+        else if (tabRight > offset + viewport)
+        {
+            _tabHeaderScrollViewer.ScrollToHorizontalOffset(tabRight - viewport);
+        }
+    }
+
+    private void AutoScrollTabStrip(Point pointerPosition)
+    {
+        if (_tabStripPanel is null || _tabHeaderScrollViewer is null)
+        {
+            return;
+        }
+
+        var pointerInViewer = _tabStripPanel.TranslatePoint(pointerPosition, _tabHeaderScrollViewer);
+        var viewportWidth = _tabHeaderScrollViewer.ViewportWidth;
+
+        if (viewportWidth <= 0)
+        {
+            return;
+        }
+
+        var horizontalOffset = _tabHeaderScrollViewer.HorizontalOffset;
+        var maxOffset = _tabHeaderScrollViewer.ScrollableWidth;
+        var newOffset = horizontalOffset;
+        var shouldScroll = false;
+
+        if (pointerInViewer.X < DragScrollEdgeThreshold && horizontalOffset > 0)
+        {
+            var delta = Math.Min(DragScrollStep, DragScrollEdgeThreshold - pointerInViewer.X);
+            newOffset = Math.Max(0, horizontalOffset - delta);
+            shouldScroll = true;
+        }
+        else if (pointerInViewer.X > viewportWidth - DragScrollEdgeThreshold && horizontalOffset < maxOffset)
+        {
+            var delta = Math.Min(DragScrollStep, pointerInViewer.X - (viewportWidth - DragScrollEdgeThreshold));
+            newOffset = Math.Min(maxOffset, horizontalOffset + delta);
+            shouldScroll = true;
+        }
+
+        if (shouldScroll)
+        {
+            _tabHeaderScrollViewer.ScrollToHorizontalOffset(newOffset);
+        }
     }
 }

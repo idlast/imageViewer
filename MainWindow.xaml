@@ -65,7 +65,9 @@
         <TabControl x:Name="MainTabControl"
                 Grid.Row="1"
                     ItemsSource="{Binding Tabs}"
-                    SelectedItem="{Binding SelectedTab}"
+                    SelectedItem="{Binding SelectedTab, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    IsSynchronizedWithCurrentItem="True"
+                    SelectionChanged="OnTabSelectionChanged"
                     TabStripPlacement="Top"
                     Background="Transparent"
                     BorderThickness="0">
@@ -75,6 +77,38 @@
                     <Setter Property="Background" Value="Transparent"/>
                 </Style>
             </TabControl.Resources>
+            <TabControl.Template>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid KeyboardNavigation.TabNavigation="Local">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Background="Transparent">
+                            <ScrollViewer x:Name="HeaderScrollViewer"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled"
+                                          Focusable="False"
+                                          CanContentScroll="False"
+                                          Background="Transparent">
+                                <TabPanel x:Name="HeaderPanel"
+                                          IsItemsHost="True"
+                                          Margin="0,0,0,1"
+                                          Panel.ZIndex="1"
+                                          Background="Transparent"/>
+                            </ScrollViewer>
+                        </Border>
+                        <Border Grid.Row="1"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Background="{TemplateBinding Background}">
+                            <ContentPresenter x:Name="PART_SelectedContentHost"
+                                              Margin="{TemplateBinding Padding}"
+                                              ContentSource="SelectedContent"/>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </TabControl.Template>
             <TabControl.ItemContainerStyle>
                 <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
                     <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=TabControl}}"/>
@@ -100,26 +134,6 @@
                     </Setter>
                 </Style>
             </TabControl.ItemContainerStyle>
-            <TabControl.Template>
-                <ControlTemplate TargetType="TabControl">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <!-- タブヘッダーエリアの背景 -->
-                        <Border Grid.Row="0" Background="{StaticResource ControlBackgroundBrush}" Padding="0,8,0,0">
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                                          VerticalScrollBarVisibility="Disabled"
-                                          Background="Transparent">
-                                <TabPanel IsItemsHost="True"/>
-                            </ScrollViewer>
-                        </Border>
-                        <ContentPresenter Grid.Row="1"
-                                          ContentSource="SelectedContent"/>
-                    </Grid>
-                </ControlTemplate>
-            </TabControl.Template>
             <TabControl.ItemTemplate>
                 <DataTemplate DataType="{x:Type vm:ImageTabViewModel}">
                     <Grid ClipToBounds="True" MinHeight="28">
