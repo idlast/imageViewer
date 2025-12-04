@@ -1,10 +1,9 @@
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
-using System.Linq;
+using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using ImgViewer.Models;
 using ImgViewer.Services;
 using Microsoft.Win32;
 
@@ -12,8 +11,25 @@ namespace ImgViewer.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
+    private static readonly string LogFilePath = Path.Combine(Path.GetTempPath(), "ImgViewer_viewmodel.log");
     private readonly IImageService _imageService;
-    private readonly ISessionService _sessionService;
+    private readonly TabStateStore _store;
+    private readonly TabCommandQueue _commandQueue;
+    private readonly Dispatcher _dispatcher;
+    private readonly Dictionary<string, ImageTabViewModel> _tabViewModels = new();
+    private bool _isApplyingStateSelection;
+    private DateTime _selectionEnforcementUntil = DateTime.MinValue;
+    private string? _lastStateSelectionPath;
+
+    private static void Log(string message)
+    {
+        try
+        {
+            var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}{Environment.NewLine}";
+            File.AppendAllText(LogFilePath, line);
+        }
+        catch { }
+    }
 
     public ObservableCollection<ImageTabViewModel> Tabs { get; } = [];
 
@@ -41,21 +57,36 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _zoomStepPercent = 4;
 
-    public MainViewModel(IImageService imageService, ISessionService sessionService)
+    public TabCommandQueue CommandQueue => _commandQueue;
+
+    public MainViewModel(
+        IImageService imageService,
+        ISessionService sessionService,
+        TabStateStore store,
+        Dispatcher dispatcher)
     {
         _imageService = imageService;
-        _sessionService = sessionService;
-        Tabs.CollectionChanged += OnTabsCollectionChanged;
+        _store = store;
+        _dispatcher = dispatcher;
+
+        _commandQueue = new TabCommandQueue(
+            store,
+            sessionService,
+            imageService,
+            imageLoader: LoadImageForTabAsync,
+            activateWindow: ActivateWindow);
+
+        _store.StateChanged += OnStateChanged;
+        _commandQueue.Start();
     }
 
-    private void OnTabsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    public void Enqueue(TabCommand command)
     {
-        CloseTabsToTheRightCommand.NotifyCanExecuteChanged();
-        CloseOtherTabsCommand.NotifyCanExecuteChanged();
+        _commandQueue.Enqueue(command);
     }
 
     [RelayCommand]
-    private async Task OpenFileAsync()
+    private void OpenFile()
     {
         var dialog = new OpenFileDialog
         {
@@ -65,10 +96,7 @@ public partial class MainViewModel : ObservableObject
 
         if (dialog.ShowDialog() == true)
         {
-            foreach (var filePath in dialog.FileNames)
-            {
-                await AddTabAsync(filePath);
-            }
+            Enqueue(new OpenFilesCommand(dialog.FileNames, TabCommandSource.UserAction));
         }
     }
 
@@ -76,17 +104,10 @@ public partial class MainViewModel : ObservableObject
     private void CloseTab(ImageTabViewModel? tab)
     {
         if (tab is null) return;
-
         var index = Tabs.IndexOf(tab);
-        Tabs.Remove(tab);
-
-        if (Tabs.Count > 0)
+        if (index >= 0)
         {
-            SelectedTab = Tabs[Math.Min(index, Tabs.Count - 1)];
-        }
-        else
-        {
-            SelectedTab = null;
+            Enqueue(new CloseTabCommand(index));
         }
     }
 
@@ -94,16 +115,11 @@ public partial class MainViewModel : ObservableObject
     private void CloseTabsToTheRight(ImageTabViewModel? tab)
     {
         if (tab is null) return;
-
         var index = Tabs.IndexOf(tab);
-        if (index < 0) return;
-
-        for (var i = Tabs.Count - 1; i > index; i--)
+        if (index >= 0)
         {
-            Tabs.RemoveAt(i);
+            Enqueue(new CloseTabsToRightCommand(index));
         }
-
-        SelectedTab = tab;
     }
 
     private bool CanCloseTabsToTheRight(ImageTabViewModel? tab)
@@ -117,16 +133,11 @@ public partial class MainViewModel : ObservableObject
     private void CloseOtherTabs(ImageTabViewModel? tab)
     {
         if (tab is null) return;
-
-        for (var i = Tabs.Count - 1; i >= 0; i--)
+        var index = Tabs.IndexOf(tab);
+        if (index >= 0)
         {
-            if (!ReferenceEquals(Tabs[i], tab))
-            {
-                Tabs.RemoveAt(i);
-            }
+            Enqueue(new CloseOtherTabsCommand(index));
         }
-
-        SelectedTab = tab;
     }
 
     private bool CanCloseOtherTabs(ImageTabViewModel? tab)
@@ -168,66 +179,9 @@ public partial class MainViewModel : ObservableObject
         SelectedTab?.ResetZoom();
     }
 
-    public async Task<ImageTabViewModel?> AddTabAsync(string filePath)
+    public void MoveTab(int fromIndex, int toIndex)
     {
-        if (!_imageService.IsSupportedFormat(filePath))
-        {
-            MessageBox.Show($"サポートされていないファイル形式です: {filePath}", "エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return null;
-        }
-
-        var existingTab = Tabs.FirstOrDefault(t => t.FilePath == filePath);
-        if (existingTab is not null)
-        {
-            SelectedTab = existingTab;
-            return existingTab;
-        }
-
-        var tab = new ImageTabViewModel(filePath, _imageService);
-        tab.ZoomStepPercent = ZoomStepPercent;
-        Tabs.Add(tab);
-        SelectedTab = tab;
-        await tab.LoadImageAsync();
-        return tab;
-    }
-
-    public async Task RestoreSessionAsync()
-    {
-        var session = await _sessionService.LoadSessionAsync();
-
-        WindowWidth = session.WindowWidth;
-        WindowHeight = session.WindowHeight;
-        WindowLeft = session.WindowLeft;
-        WindowTop = session.WindowTop;
-        IsMaximized = session.IsMaximized;
-        ZoomStepPercent = NormalizeZoomStep(session.ZoomStepPercent);
-
-        foreach (var filePath in session.OpenTabs)
-        {
-            await AddTabAsync(filePath);
-        }
-
-        if (session.ActiveTabIndex >= 0 && session.ActiveTabIndex < Tabs.Count)
-        {
-            SelectedTab = Tabs[session.ActiveTabIndex];
-        }
-    }
-
-    public async Task SaveSessionAsync()
-    {
-        var session = new SessionData
-        {
-            WindowWidth = WindowWidth,
-            WindowHeight = WindowHeight,
-            WindowLeft = WindowLeft,
-            WindowTop = WindowTop,
-            IsMaximized = IsMaximized,
-            OpenTabs = Tabs.Select(t => t.FilePath).ToList(),
-            ActiveTabIndex = SelectedTab is not null ? Tabs.IndexOf(SelectedTab) : 0,
-            ZoomStepPercent = ZoomStepPercent
-        };
-
-        await _sessionService.SaveSessionAsync(session);
+        Enqueue(new MoveTabCommand(fromIndex, toIndex));
     }
 
     public void ResetAllZoom()
@@ -238,11 +192,57 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    public void SaveSession()
+    {
+        var state = _store.State;
+        _store.Apply(s => s with
+        {
+            WindowWidth = WindowWidth,
+            WindowHeight = WindowHeight,
+            WindowLeft = WindowLeft,
+            WindowTop = WindowTop,
+            IsMaximized = IsMaximized,
+            ZoomStepPercent = ZoomStepPercent
+        });
+        Enqueue(new SaveSessionCommand());
+    }
+
     partial void OnSelectedTabChanged(ImageTabViewModel? value)
     {
+        var tabName = value?.FileName ?? "<null>";
+        Log($"OnSelectedTabChanged: value={tabName}, applyingState={_isApplyingStateSelection}");
         if (value is not null && value.Image is null && !value.IsLoading)
         {
             _ = value.LoadImageAsync();
+        }
+
+        if (_isApplyingStateSelection || value is null)
+        {
+            Log("  Ignored (state sync or null)");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var stateSelectionPath = _store.State.SelectedFilePath;
+        if (now <= _selectionEnforcementUntil && stateSelectionPath is not null && value.FilePath != stateSelectionPath)
+        {
+            Log($"  Enforcing state selection ({stateSelectionPath}) during stabilization window");
+            ForceSelectStateTab();
+            return;
+        }
+
+        _selectionEnforcementUntil = DateTime.MinValue;
+        _lastStateSelectionPath = value.FilePath;
+
+        var index = Tabs.IndexOf(value);
+        if (index >= 0)
+        {
+            Log($"  Enqueue SelectTabCommand index={index}");
+            Enqueue(new SelectTabCommand(index));
+        }
+        else
+        {
+            Log("  Tab not found in Tabs collection");
         }
     }
 
@@ -259,6 +259,155 @@ public partial class MainViewModel : ObservableObject
         {
             tab.ZoomStepPercent = normalized;
         }
+    }
+
+    private void OnStateChanged(object? sender, StateChangedEventArgs e)
+    {
+        Log($"OnStateChanged: Tabs={e.NewState.Tabs.Count}, Selected={e.NewState.SelectedIndex}");
+        _dispatcher.Invoke(() => SyncFromState(e.NewState));
+    }
+
+    private void SyncFromState(AppState state)
+    {
+        Log($"SyncFromState START: state.Tabs={state.Tabs.Count}, state.Selected={state.SelectedIndex}, UI.Tabs={Tabs.Count}");
+        
+        WindowWidth = state.WindowWidth;
+        WindowHeight = state.WindowHeight;
+        WindowLeft = state.WindowLeft;
+        WindowTop = state.WindowTop;
+        IsMaximized = state.IsMaximized;
+
+        var currentPaths = Tabs.Select(t => t.FilePath).ToHashSet();
+        var statePaths = state.Tabs.Select(t => t.FilePath).ToHashSet();
+
+        foreach (var tab in Tabs.ToList())
+        {
+            if (!statePaths.Contains(tab.FilePath))
+            {
+                Tabs.Remove(tab);
+                _tabViewModels.Remove(tab.FilePath);
+            }
+        }
+
+        for (var i = 0; i < state.Tabs.Count; i++)
+        {
+            var tabState = state.Tabs[i];
+            if (!_tabViewModels.TryGetValue(tabState.FilePath, out var vm))
+            {
+                vm = new ImageTabViewModel(tabState.FilePath, _imageService)
+                {
+                    ZoomStepPercent = ZoomStepPercent
+                };
+                _tabViewModels[tabState.FilePath] = vm;
+            }
+
+            var currentIndex = Tabs.IndexOf(vm);
+            if (currentIndex < 0)
+            {
+                if (i < Tabs.Count)
+                {
+                    Log($"  Insert tab at {i}: {tabState.FileName}");
+                    Tabs.Insert(i, vm);
+                }
+                else
+                {
+                    Log($"  Add tab: {tabState.FileName}");
+                    Tabs.Add(vm);
+                }
+            }
+            else if (currentIndex != i)
+            {
+                Log($"  Move tab {currentIndex} -> {i}: {tabState.FileName}");
+                Tabs.Move(currentIndex, i);
+            }
+        }
+
+        Log($"  Before selection: UI.Tabs={Tabs.Count}, state.SelectedIndex={state.SelectedIndex}");
+        _isApplyingStateSelection = true;
+        try
+        {
+            if (state.SelectedIndex >= 0 && state.SelectedIndex < Tabs.Count)
+            {
+                var targetTab = Tabs[state.SelectedIndex];
+                Log($"  Setting SelectedTab to index {state.SelectedIndex}: {targetTab.FileName}");
+                
+                if (SelectedTab != targetTab)
+                {
+                    SelectedTab = null;
+                    SelectedTab = targetTab;
+                }
+                
+                Log($"  SelectedTab is now: {SelectedTab?.FileName}");
+                _lastStateSelectionPath = targetTab.FilePath;
+                _selectionEnforcementUntil = DateTime.UtcNow.AddMilliseconds(250);
+            }
+            else
+            {
+                Log($"  Selection index out of range, selecting first");
+                SelectedTab = Tabs.FirstOrDefault();
+                _lastStateSelectionPath = SelectedTab?.FilePath;
+                _selectionEnforcementUntil = DateTime.MinValue;
+            }
+        }
+        finally
+        {
+            _isApplyingStateSelection = false;
+        }
+
+        Log($"SyncFromState END: UI.Tabs={Tabs.Count}, SelectedTab={SelectedTab?.FileName}");
+        CloseTabsToTheRightCommand.NotifyCanExecuteChanged();
+        CloseOtherTabsCommand.NotifyCanExecuteChanged();
+    }
+
+    private void ForceSelectStateTab()
+    {
+        var state = _store.State;
+        if (state.SelectedIndex < 0 || state.SelectedIndex >= Tabs.Count)
+        {
+            return;
+        }
+
+        var target = Tabs[state.SelectedIndex];
+        _isApplyingStateSelection = true;
+        try
+        {
+            if (SelectedTab != target)
+            {
+                SelectedTab = null;
+                SelectedTab = target;
+            }
+            Log($"  Forced SelectedTab to state value: {target.FileName}");
+        }
+        finally
+        {
+            _isApplyingStateSelection = false;
+        }
+    }
+
+    private async Task LoadImageForTabAsync(string filePath)
+    {
+        await _dispatcher.InvokeAsync(async () =>
+        {
+            if (_tabViewModels.TryGetValue(filePath, out var vm))
+            {
+                await vm.LoadImageAsync();
+            }
+        });
+    }
+
+    private void ActivateWindow()
+    {
+        _dispatcher.InvokeAsync(() =>
+        {
+            if (Application.Current?.MainWindow is Window mainWindow)
+            {
+                if (mainWindow.WindowState == WindowState.Minimized)
+                {
+                    mainWindow.WindowState = WindowState.Normal;
+                }
+                mainWindow.Activate();
+            }
+        });
     }
 
     private static int ParseZoomParameter(object? parameter)

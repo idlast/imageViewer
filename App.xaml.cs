@@ -1,7 +1,5 @@
-﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
 using ImgViewer.Services;
 using ImgViewer.ViewModels;
@@ -11,18 +9,36 @@ namespace ImgViewer;
 public partial class App : Application
 {
     private SingleInstanceCoordinator? _instanceCoordinator;
+    private TabCommandQueue? _commandQueue;
 
     private async void OnStartup(object sender, StartupEventArgs e)
     {
         var imageService = new ImageService();
         var sessionService = new SessionService();
-        var viewModel = new MainViewModel(imageService, sessionService);
+        var store = new TabStateStore();
+
+        var viewModel = new MainViewModel(
+            imageService,
+            sessionService,
+            store,
+            Dispatcher);
+
+        _commandQueue = viewModel.CommandQueue;
 
         _instanceCoordinator = new SingleInstanceCoordinator("ImgViewer");
 
         var isPrimary = await _instanceCoordinator.TryStartAsync(
             e.Args,
-            args => Dispatcher.InvokeAsync(() => HandleExternalArgumentsAsync(args, viewModel)).Task);
+            args =>
+            {
+                var files = args.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (files.Count > 0)
+                {
+                    viewModel.Enqueue(new OpenFilesCommand(files, TabCommandSource.ExternalRequest));
+                }
+                viewModel.Enqueue(new ActivateWindowCommand());
+                return Task.CompletedTask;
+            });
 
         if (!isPrimary)
         {
@@ -35,7 +51,9 @@ public partial class App : Application
             DataContext = viewModel
         };
 
-        await viewModel.RestoreSessionAsync();
+        viewModel.Enqueue(new RestoreSessionCommand());
+
+        await Task.Delay(100);
 
         if (viewModel.IsMaximized)
         {
@@ -44,44 +62,16 @@ public partial class App : Application
 
         mainWindow.Show();
 
-        await HandleExternalArgumentsAsync(e.Args, viewModel);
+        var startupFiles = e.Args.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (startupFiles.Count > 0)
+        {
+            viewModel.Enqueue(new OpenFilesCommand(startupFiles, TabCommandSource.ExternalRequest));
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         _instanceCoordinator?.Dispose();
         base.OnExit(e);
-    }
-
-    private static async Task HandleExternalArgumentsAsync(IEnumerable<string> args, MainViewModel viewModel)
-    {
-        var files = args.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase);
-        ImageTabViewModel? lastOpenedTab = null;
-
-        foreach (var file in files)
-        {
-            var tab = await viewModel.AddTabAsync(file);
-            if (tab is not null)
-            {
-                lastOpenedTab = tab;
-            }
-        }
-
-        if (lastOpenedTab is not null)
-        {
-            viewModel.SelectedTab = lastOpenedTab;
-        }
-
-        if (Current?.MainWindow is not Window mainWindow)
-        {
-            return;
-        }
-
-        if (mainWindow.WindowState == WindowState.Minimized)
-        {
-            mainWindow.WindowState = WindowState.Normal;
-        }
-
-        mainWindow.Activate();
     }
 }
