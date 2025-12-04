@@ -244,7 +244,7 @@ public sealed class TabCommandQueue : IAsyncDisposable
             WindowTop = session.WindowTop,
             IsMaximized = session.IsMaximized,
             ZoomStepPercent = session.ZoomStepPercent
-        });
+        }, isSessionRestore: true);
 
         if (session.OpenTabs.Count > 0)
         {

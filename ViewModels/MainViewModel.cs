@@ -264,18 +264,21 @@ public partial class MainViewModel : ObservableObject
     private void OnStateChanged(object? sender, StateChangedEventArgs e)
     {
         Log($"OnStateChanged: Tabs={e.NewState.Tabs.Count}, Selected={e.NewState.SelectedIndex}");
-        _dispatcher.Invoke(() => SyncFromState(e.NewState));
+        _dispatcher.Invoke(() => SyncFromState(e.NewState, e.IsSessionRestore));
     }
 
-    private void SyncFromState(AppState state)
+    private void SyncFromState(AppState state, bool isSessionRestore = false)
     {
-        Log($"SyncFromState START: state.Tabs={state.Tabs.Count}, state.Selected={state.SelectedIndex}, UI.Tabs={Tabs.Count}");
+        Log($"SyncFromState START: state.Tabs={state.Tabs.Count}, state.Selected={state.SelectedIndex}, UI.Tabs={Tabs.Count}, isSessionRestore={isSessionRestore}");
         
-        WindowWidth = state.WindowWidth;
-        WindowHeight = state.WindowHeight;
-        WindowLeft = state.WindowLeft;
-        WindowTop = state.WindowTop;
-        IsMaximized = state.IsMaximized;
+        if (isSessionRestore)
+        {
+            WindowWidth = state.WindowWidth;
+            WindowHeight = state.WindowHeight;
+            WindowLeft = state.WindowLeft;
+            WindowTop = state.WindowTop;
+            IsMaximized = state.IsMaximized;
+        }
 
         var currentPaths = Tabs.Select(t => t.FilePath).ToHashSet();
         var statePaths = state.Tabs.Select(t => t.FilePath).ToHashSet();
