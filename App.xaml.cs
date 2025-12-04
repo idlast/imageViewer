@@ -18,6 +18,8 @@ public partial class App : Application
         var sessionService = new SessionService();
         var viewModel = new MainViewModel(imageService, sessionService);
 
+        viewModel.TabAdded += OnViewModelTabAdded;
+
         _instanceCoordinator = new SingleInstanceCoordinator("ImgViewer");
 
         var isPrimary = await _instanceCoordinator.TryStartAsync(
@@ -60,7 +62,7 @@ public partial class App : Application
 
         foreach (var file in files)
         {
-            var tab = await viewModel.AddTabAsync(file);
+            var tab = await viewModel.AddTabAsync(file, TabInsertionSource.ExternalRequest);
             if (tab is not null)
             {
                 lastOpenedTab = tab;
@@ -83,5 +85,20 @@ public partial class App : Application
         }
 
         mainWindow.Activate();
+    }
+
+    private static void OnViewModelTabAdded(object? sender, TabAddedEventArgs e)
+    {
+        if (sender is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        if (e.Source == TabInsertionSource.SessionRestore)
+        {
+            return;
+        }
+
+        viewModel.SelectedTab = e.Tab;
     }
 }

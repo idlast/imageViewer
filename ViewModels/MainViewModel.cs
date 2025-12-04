@@ -1,3 +1,4 @@
+using System;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
@@ -16,6 +17,9 @@ public partial class MainViewModel : ObservableObject
     private readonly ISessionService _sessionService;
 
     public ObservableCollection<ImageTabViewModel> Tabs { get; } = [];
+
+    public event EventHandler<TabAddedEventArgs>? TabAdded;
+    public event EventHandler<TabMovedEventArgs>? TabMoved;
 
     [ObservableProperty]
     private ImageTabViewModel? _selectedTab;
@@ -168,7 +172,7 @@ public partial class MainViewModel : ObservableObject
         SelectedTab?.ResetZoom();
     }
 
-    public async Task<ImageTabViewModel?> AddTabAsync(string filePath)
+    public async Task<ImageTabViewModel?> AddTabAsync(string filePath, TabInsertionSource source = TabInsertionSource.UserAction)
     {
         if (!_imageService.IsSupportedFormat(filePath))
         {
@@ -179,14 +183,14 @@ public partial class MainViewModel : ObservableObject
         var existingTab = Tabs.FirstOrDefault(t => t.FilePath == filePath);
         if (existingTab is not null)
         {
-            SelectedTab = existingTab;
+            TabAdded?.Invoke(this, new TabAddedEventArgs(existingTab, source, false));
             return existingTab;
         }
 
         var tab = new ImageTabViewModel(filePath, _imageService);
         tab.ZoomStepPercent = ZoomStepPercent;
         Tabs.Add(tab);
-        SelectedTab = tab;
+        TabAdded?.Invoke(this, new TabAddedEventArgs(tab, source, true));
         await tab.LoadImageAsync();
         return tab;
     }
@@ -204,7 +208,7 @@ public partial class MainViewModel : ObservableObject
 
         foreach (var filePath in session.OpenTabs)
         {
-            await AddTabAsync(filePath);
+            await AddTabAsync(filePath, TabInsertionSource.SessionRestore);
         }
 
         if (session.ActiveTabIndex >= 0 && session.ActiveTabIndex < Tabs.Count)
@@ -228,6 +232,61 @@ public partial class MainViewModel : ObservableObject
         };
 
         await _sessionService.SaveSessionAsync(session);
+    }
+
+    public void MoveTab(int fromIndex, int toIndex)
+    {
+        if (Tabs.Count == 0 || fromIndex < 0 || fromIndex >= Tabs.Count)
+        {
+            return;
+        }
+
+        var destination = Math.Clamp(toIndex, 0, Tabs.Count - 1);
+        if (fromIndex == destination)
+        {
+            return;
+        }
+
+        var movedTab = Tabs[fromIndex];
+        Tabs.Move(fromIndex, destination);
+        TabMoved?.Invoke(this, new TabMovedEventArgs(movedTab, destination));
+    }
+
+    public void MoveTab(ImageTabViewModel? tab, int newIndex)
+    {
+        if (tab is null)
+        {
+            return;
+        }
+
+        var currentIndex = Tabs.IndexOf(tab);
+        if (currentIndex < 0)
+        {
+            return;
+        }
+
+        MoveTab(currentIndex, newIndex);
+    }
+
+    public void MoveTab(ImageTabViewModel? sourceTab, ImageTabViewModel? targetTab, bool insertAfterTarget)
+    {
+        if (sourceTab is null || targetTab is null || ReferenceEquals(sourceTab, targetTab))
+        {
+            return;
+        }
+
+        var targetIndex = Tabs.IndexOf(targetTab);
+        if (targetIndex < 0)
+        {
+            return;
+        }
+
+        if (insertAfterTarget)
+        {
+            targetIndex++;
+        }
+
+        MoveTab(sourceTab, targetIndex);
     }
 
     public void ResetAllZoom()
@@ -280,4 +339,41 @@ public partial class MainViewModel : ObservableObject
             _ => 4
         };
     }
+}
+
+public enum TabInsertionSource
+{
+    UserAction,
+    ExternalRequest,
+    SessionRestore,
+    Programmatic
+}
+
+public sealed class TabAddedEventArgs : EventArgs
+{
+    public TabAddedEventArgs(ImageTabViewModel tab, TabInsertionSource source, bool isNewTab)
+    {
+        Tab = tab;
+        Source = source;
+        IsNewTab = isNewTab;
+    }
+
+    public ImageTabViewModel Tab { get; }
+
+    public TabInsertionSource Source { get; }
+
+    public bool IsNewTab { get; }
+}
+
+public sealed class TabMovedEventArgs : EventArgs
+{
+    public TabMovedEventArgs(ImageTabViewModel tab, int newIndex)
+    {
+        Tab = tab;
+        NewIndex = newIndex;
+    }
+
+    public ImageTabViewModel Tab { get; }
+
+    public int NewIndex { get; }
 }
