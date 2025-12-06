@@ -57,6 +57,11 @@
                               IsChecked="{Binding ZoomStepPercent, Converter={StaticResource EqualsConverter}, ConverterParameter=20}"
                               Command="{Binding SetZoomStepCommand}"
                               CommandParameter="20"/>
+                    <MenuItem Header="50% (超高速)"
+                              IsCheckable="True"
+                              IsChecked="{Binding ZoomStepPercent, Converter={StaticResource EqualsConverter}, ConverterParameter=50}"
+                              Command="{Binding SetZoomStepCommand}"
+                              CommandParameter="50"/>
                 </MenuItem>
             </MenuItem>
         </Menu>
