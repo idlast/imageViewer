@@ -429,6 +429,7 @@ public partial class MainViewModel : ObservableObject
         {
             10 => 10,
             20 => 20,
+            50 => 50,
             _ => 4
         };
     }

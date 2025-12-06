@@ -35,7 +35,6 @@ public partial class ImageTabView : UserControl
 
     private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (Keyboard.Modifiers != ModifierKeys.Control) return;
         if (DataContext is not ImageTabViewModel vm) return;
         if (e.Delta == 0) return;
 
