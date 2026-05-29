@@ -35,7 +35,7 @@ public partial class ImageTabViewModel : ObservableObject
     private double _scrollOffsetY;
 
     [ObservableProperty]
-    private int _zoomStepPercent = 4;
+    private int _zoomStepPercent = 50;
 
     public string FilePath { get; }
     public string FileName => System.IO.Path.GetFileName(FilePath);

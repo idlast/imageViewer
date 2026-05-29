@@ -12,5 +12,5 @@ public class SessionData
     public bool IsMaximized { get; set; }
     public List<string> OpenTabs { get; set; } = [];
     public int ActiveTabIndex { get; set; }
-    public int ZoomStepPercent { get; set; } = 4;
+    public int ZoomStepPercent { get; set; } = 50;
 }

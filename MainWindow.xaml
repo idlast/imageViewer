@@ -71,7 +71,6 @@
                 Grid.Row="1"
                     ItemsSource="{Binding Tabs}"
                     SelectedItem="{Binding SelectedTab, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    IsSynchronizedWithCurrentItem="True"
                     SelectionChanged="OnTabSelectionChanged"
                     TabStripPlacement="Top"
                     Background="Transparent"

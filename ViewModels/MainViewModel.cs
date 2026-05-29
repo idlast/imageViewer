@@ -55,7 +55,7 @@ public partial class MainViewModel : ObservableObject
     private bool _isMaximized;
 
     [ObservableProperty]
-    private int _zoomStepPercent = 4;
+    private int _zoomStepPercent = 50;
 
     public TabCommandQueue CommandQueue => _commandQueue;
 
@@ -278,6 +278,7 @@ public partial class MainViewModel : ObservableObject
             WindowLeft = state.WindowLeft;
             WindowTop = state.WindowTop;
             IsMaximized = state.IsMaximized;
+            ZoomStepPercent = state.ZoomStepPercent;
         }
 
         var currentPaths = Tabs.Select(t => t.FilePath).ToHashSet();
@@ -419,7 +420,7 @@ public partial class MainViewModel : ObservableObject
         {
             int value => value,
             string text when int.TryParse(text, out var parsed) => parsed,
-            _ => 4
+            _ => 50
         };
     }
 
@@ -427,10 +428,11 @@ public partial class MainViewModel : ObservableObject
     {
         return value switch
         {
+            4 => 4,
             10 => 10,
             20 => 20,
             50 => 50,
-            _ => 4
+            _ => 50
         };
     }
 }

@@ -17,7 +17,7 @@ public sealed record AppState
     public double WindowLeft { get; init; } = 100;
     public double WindowTop { get; init; } = 100;
     public bool IsMaximized { get; init; }
-    public int ZoomStepPercent { get; init; } = 4;
+    public int ZoomStepPercent { get; init; } = 50;
 
     public string? SelectedFilePath => SelectedIndex >= 0 && SelectedIndex < Tabs.Count
         ? Tabs[SelectedIndex].FilePath
