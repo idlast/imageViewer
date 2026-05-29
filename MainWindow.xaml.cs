@@ -26,7 +26,6 @@ public partial class MainWindow : Window
     private double _tabDragBaseLeft;
     private int _tabDragOriginalIndex;
     private int _tabDragCurrentIndex;
-    private bool _suppressSelectionChanged;
     
     private TabItem? _pendingDragItem;
     private ImageTabViewModel? _pendingDragViewModel;
@@ -35,7 +34,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        DataContextChanged += OnDataContextChanged;
         try
         {
             System.IO.File.WriteAllText(UiLogPath, string.Empty);
@@ -57,66 +55,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if (e.OldValue is MainViewModel oldVm)
-        {
-            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
-        }
-        if (e.NewValue is MainViewModel newVm)
-        {
-            newVm.PropertyChanged += OnViewModelPropertyChanged;
-        }
-    }
-
-    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(MainViewModel.SelectedTab))
-        {
-            LogUi($"PropertyChanged -> SelectedTab={ViewModel.SelectedTab?.FileName ?? "<null>"}");
-            SyncTabControlSelection();
-        }
-    }
-
-    private void SyncTabControlSelection()
-    {
-        var selectedTab = ViewModel.SelectedTab;
-        if (selectedTab is null)
-        {
-            LogUi("SyncTabControlSelection: SelectedTab is null");
-            return;
-        }
-
-        var index = ViewModel.Tabs.IndexOf(selectedTab);
-        LogUi($"SyncTabControlSelection: target index={index}, current index={MainTabControl.SelectedIndex}");
-        if (index >= 0 && MainTabControl.SelectedIndex != index)
-        {
-            try
-            {
-                _suppressSelectionChanged = true;
-                MainTabControl.SelectedIndex = index;
-                LogUi($"  -> Programmatic select index {index}");
-                EnsureTabContainerVisible(index);
-            }
-            finally
-            {
-                _suppressSelectionChanged = false;
-            }
-        }
-        else if (index >= 0)
-        {
-            EnsureTabContainerVisible(index);
-        }
-    }
-
     private void OnTabSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var vm = MainTabControl.SelectedItem as ImageTabViewModel;
-        LogUi($"OnTabSelectionChanged: index={MainTabControl.SelectedIndex}, tab={vm?.FileName ?? "<null>"}, suppress={_suppressSelectionChanged}");
-        if (!_suppressSelectionChanged)
-        {
-            EnsureTabContainerVisible(MainTabControl.SelectedIndex);
-        }
+        LogUi($"OnTabSelectionChanged: index={MainTabControl.SelectedIndex}, tab={vm?.FileName ?? "<null>"}");
+        EnsureTabContainerVisible(MainTabControl.SelectedIndex);
     }
 
     private void EnsureTabContainerVisible(int index)
@@ -131,11 +74,7 @@ public partial class MainWindow : Window
         MainTabControl.UpdateLayout();
         if (MainTabControl.ItemContainerGenerator.ContainerFromIndex(index) is TabItem tab)
         {
-            LogUi($"EnsureTabContainerVisible: focusing tab {tab.Header ?? tab.Content}" );
-            if (!tab.IsFocused)
-            {
-                tab.Focus();
-            }
+            LogUi($"EnsureTabContainerVisible: tab {tab.Header ?? tab.Content}" );
             tab.BringIntoView();
             EnsureTabIsWithinScrollViewport(tab);
         }

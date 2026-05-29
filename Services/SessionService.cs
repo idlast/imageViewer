@@ -83,10 +83,11 @@ public class SessionService : ISessionService
     {
         return value switch
         {
+            4 => 4,
             10 => 10,
             20 => 20,
             50 => 50,
-            _ => 4
+            _ => 50
         };
     }
 }

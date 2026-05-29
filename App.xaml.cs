@@ -16,6 +16,9 @@ public partial class App : Application
         var imageService = new ImageService();
         var sessionService = new SessionService();
         var store = new TabStateStore();
+        var startupReady = false;
+        var pendingExternalFiles = new List<string>();
+        var pendingExternalFilesLock = new object();
 
         var viewModel = new MainViewModel(
             imageService,
@@ -34,7 +37,23 @@ public partial class App : Application
                 var files = args.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 if (files.Count > 0)
                 {
-                    viewModel.Enqueue(new OpenFilesCommand(files, TabCommandSource.ExternalRequest));
+                    var shouldOpenNow = false;
+                    lock (pendingExternalFilesLock)
+                    {
+                        if (startupReady)
+                        {
+                            shouldOpenNow = true;
+                        }
+                        else
+                        {
+                            pendingExternalFiles.AddRange(files);
+                        }
+                    }
+
+                    if (shouldOpenNow)
+                    {
+                        viewModel.Enqueue(new OpenFilesCommand(files, TabCommandSource.ExternalRequest));
+                    }
                 }
                 viewModel.Enqueue(new ActivateWindowCommand());
                 return Task.CompletedTask;
@@ -62,10 +81,21 @@ public partial class App : Application
 
         mainWindow.Show();
 
-        var startupFiles = e.Args.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (startupFiles.Count > 0)
+        List<string> externalFiles;
+        lock (pendingExternalFilesLock)
         {
-            viewModel.Enqueue(new OpenFilesCommand(startupFiles, TabCommandSource.ExternalRequest));
+            startupReady = true;
+            externalFiles = e.Args
+                .Concat(pendingExternalFiles)
+                .Where(File.Exists)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            pendingExternalFiles.Clear();
+        }
+
+        if (externalFiles.Count > 0)
+        {
+            viewModel.Enqueue(new OpenFilesCommand(externalFiles, TabCommandSource.ExternalRequest));
         }
     }
 
