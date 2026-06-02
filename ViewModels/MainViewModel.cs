@@ -18,8 +18,6 @@ public partial class MainViewModel : ObservableObject
     private readonly Dispatcher _dispatcher;
     private readonly Dictionary<string, ImageTabViewModel> _tabViewModels = new();
     private bool _isApplyingStateSelection;
-    private DateTime _selectionEnforcementUntil = DateTime.MinValue;
-    private string? _lastStateSelectionPath;
 
     private static void Log(string message)
     {
@@ -222,17 +220,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var now = DateTime.UtcNow;
-        var stateSelectionPath = _store.State.SelectedFilePath;
-        if (now <= _selectionEnforcementUntil && stateSelectionPath is not null && value.FilePath != stateSelectionPath)
-        {
-            Log($"  Enforcing state selection ({stateSelectionPath}) during stabilization window");
-            ForceSelectStateTab();
-            return;
-        }
-
-        _selectionEnforcementUntil = DateTime.MinValue;
-        _lastStateSelectionPath = value.FilePath;
+        MarkActiveTab(value);
 
         var index = Tabs.IndexOf(value);
         if (index >= 0)
@@ -337,20 +325,17 @@ public partial class MainViewModel : ObservableObject
                 
                 if (SelectedTab != targetTab)
                 {
-                    SelectedTab = null;
                     SelectedTab = targetTab;
                 }
                 
+                MarkActiveTab(targetTab);
                 Log($"  SelectedTab is now: {SelectedTab?.FileName}");
-                _lastStateSelectionPath = targetTab.FilePath;
-                _selectionEnforcementUntil = DateTime.UtcNow.AddMilliseconds(250);
             }
             else
             {
                 Log($"  Selection index out of range, selecting first");
                 SelectedTab = Tabs.FirstOrDefault();
-                _lastStateSelectionPath = SelectedTab?.FilePath;
-                _selectionEnforcementUntil = DateTime.MinValue;
+                MarkActiveTab(SelectedTab);
             }
         }
         finally
@@ -363,28 +348,11 @@ public partial class MainViewModel : ObservableObject
         CloseOtherTabsCommand.NotifyCanExecuteChanged();
     }
 
-    private void ForceSelectStateTab()
+    private void MarkActiveTab(ImageTabViewModel? activeTab)
     {
-        var state = _store.State;
-        if (state.SelectedIndex < 0 || state.SelectedIndex >= Tabs.Count)
+        foreach (var tab in Tabs)
         {
-            return;
-        }
-
-        var target = Tabs[state.SelectedIndex];
-        _isApplyingStateSelection = true;
-        try
-        {
-            if (SelectedTab != target)
-            {
-                SelectedTab = null;
-                SelectedTab = target;
-            }
-            Log($"  Forced SelectedTab to state value: {target.FileName}");
-        }
-        finally
-        {
-            _isApplyingStateSelection = false;
+            tab.IsActive = tab == activeTab;
         }
     }
 

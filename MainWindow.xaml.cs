@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using ImgViewer.Services;
 using ImgViewer.ViewModels;
 
@@ -26,6 +27,7 @@ public partial class MainWindow : Window
     private double _tabDragBaseLeft;
     private int _tabDragOriginalIndex;
     private int _tabDragCurrentIndex;
+    private bool _isSyncingSelection;
     
     private TabItem? _pendingDragItem;
     private ImageTabViewModel? _pendingDragViewModel;
@@ -34,6 +36,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
         try
         {
             System.IO.File.WriteAllText(UiLogPath, string.Empty);
@@ -55,10 +58,61 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is MainViewModel oldVm)
+        {
+            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        if (e.NewValue is MainViewModel newVm)
+        {
+            newVm.PropertyChanged += OnViewModelPropertyChanged;
+            SyncSelectedItemFromViewModel();
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.SelectedTab))
+        {
+            SyncSelectedItemFromViewModel();
+        }
+    }
+
+    private void SyncSelectedItemFromViewModel()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (DataContext is not MainViewModel vm || vm.SelectedTab is null)
+            {
+                return;
+            }
+
+            if (MainTabControl.SelectedItem == vm.SelectedTab)
+            {
+                EnsureTabContainerVisible(MainTabControl.SelectedIndex);
+                return;
+            }
+
+            try
+            {
+                _isSyncingSelection = true;
+                MainTabControl.SelectedItem = vm.SelectedTab;
+                LogUi($"SyncSelectedItemFromViewModel: {vm.SelectedTab.FileName}");
+                EnsureTabContainerVisible(MainTabControl.SelectedIndex);
+            }
+            finally
+            {
+                _isSyncingSelection = false;
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
     private void OnTabSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var vm = MainTabControl.SelectedItem as ImageTabViewModel;
-        LogUi($"OnTabSelectionChanged: index={MainTabControl.SelectedIndex}, tab={vm?.FileName ?? "<null>"}");
+        LogUi($"OnTabSelectionChanged: index={MainTabControl.SelectedIndex}, tab={vm?.FileName ?? "<null>"}, syncing={_isSyncingSelection}");
         EnsureTabContainerVisible(MainTabControl.SelectedIndex);
     }
 
