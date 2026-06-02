@@ -373,11 +373,7 @@ public partial class MainViewModel : ObservableObject
         {
             if (Application.Current?.MainWindow is Window mainWindow)
             {
-                if (mainWindow.WindowState == WindowState.Minimized)
-                {
-                    mainWindow.WindowState = WindowState.Normal;
-                }
-                mainWindow.Activate();
+                WindowActivation.BringToFront(mainWindow);
             }
         });
     }

@@ -57,10 +57,13 @@ internal sealed class SingleInstanceCoordinator : IDisposable
         // セカンダリインスタンス
         mutex.Dispose();
         Log("Secondary instance detected.");
+        WindowActivation.AllowForegroundActivation();
+        WindowActivation.BringExistingInstanceToFront("ImgViewer");
         
         if (argsToForward is { Length: > 0 })
         {
             await NotifyPrimaryAsync(argsToForward);
+            WindowActivation.BringExistingInstanceToFront("ImgViewer");
         }
         
         return false;
