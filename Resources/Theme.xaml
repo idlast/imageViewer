@@ -88,11 +88,11 @@
                             <Setter TargetName="border" Property="Background" Value="{StaticResource TabHoverBrush}"/>
                             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                         </Trigger>
-                        <Trigger Property="IsSelected" Value="True">
+                        <DataTrigger Binding="{Binding IsActive}" Value="True">
                             <Setter TargetName="border" Property="Background" Value="{StaticResource TabSelectedBrush}"/>
                             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                             <Setter TargetName="indicator" Property="Visibility" Value="Visible"/>
-                        </Trigger>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

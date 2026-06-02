@@ -34,6 +34,8 @@ public partial class App : Application
             e.Args,
             args =>
             {
+                viewModel.Enqueue(new ActivateWindowCommand());
+
                 var files = args.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 if (files.Count > 0)
                 {
@@ -55,7 +57,6 @@ public partial class App : Application
                         viewModel.Enqueue(new OpenFilesCommand(files, TabCommandSource.ExternalRequest));
                     }
                 }
-                viewModel.Enqueue(new ActivateWindowCommand());
                 return Task.CompletedTask;
             });
 
