@@ -11,6 +11,10 @@ on:
         required: true
         default: '1.0.0'
 
+# リリースの作成に必要（既定のトークンは読み取り専用のため）
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -78,7 +82,7 @@ jobs:
           
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: |
           publish/ImgViewer.exe
