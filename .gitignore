@@ -62,3 +62,10 @@ AGENTS.md
 
 # 作業用
 tmp.txt
+
+# Spec Kit などの開発用ツール（ビルドには不要）
+.github/agents/
+.github/prompts/
+.specify/
+.vscode/
+specs/
