@@ -66,18 +66,22 @@ public partial class App : Application
             return;
         }
 
+        _ = Task.Run(ThumbnailCache.PruneUnused);
+
         var mainWindow = new MainWindow
         {
             DataContext = viewModel
         };
 
-        viewModel.Enqueue(new RestoreSessionCommand());
-
-        await Task.Delay(100);
+        var windowStateRestored = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        viewModel.Enqueue(new RestoreSessionCommand(windowStateRestored));
+        await windowStateRestored.Task;
 
         if (viewModel.IsMaximized)
         {
-            mainWindow.WindowState = WindowState.Maximized;
+            // Show 前に Maximized にすると Left/Top を無視してプライマリモニタで最大化されるため、
+            // ウィンドウが保存位置に作られた後で最大化する
+            mainWindow.SourceInitialized += (_, _) => mainWindow.WindowState = WindowState.Maximized;
         }
 
         mainWindow.Show();

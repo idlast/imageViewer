@@ -12,8 +12,8 @@ public sealed class TabCommandQueue : IAsyncDisposable
     private readonly TabStateStore _store;
     private readonly ISessionService _sessionService;
     private readonly IImageService _imageService;
-    private readonly Func<string, Task>? _imageLoader;
     private readonly Action? _activateWindow;
+    private readonly Action<string>? _onFileReopened;
     private Task? _processorTask;
     private CancellationTokenSource? _cts;
 
@@ -21,14 +21,14 @@ public sealed class TabCommandQueue : IAsyncDisposable
         TabStateStore store,
         ISessionService sessionService,
         IImageService imageService,
-        Func<string, Task>? imageLoader = null,
-        Action? activateWindow = null)
+        Action? activateWindow = null,
+        Action<string>? onFileReopened = null)
     {
         _store = store;
         _sessionService = sessionService;
         _imageService = imageService;
-        _imageLoader = imageLoader;
         _activateWindow = activateWindow;
+        _onFileReopened = onFileReopened;
         _channel = Channel.CreateUnbounded<TabCommand>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -115,7 +115,7 @@ public sealed class TabCommandQueue : IAsyncDisposable
         {
             case OpenFilesCommand openFiles:
                 Log($"OpenFiles: {openFiles.FilePaths.Count} files, Source={openFiles.Source}");
-                await HandleOpenFilesAsync(openFiles, token).ConfigureAwait(false);
+                HandleOpenFiles(openFiles, token);
                 break;
 
             case SelectTabCommand selectTab:
@@ -152,14 +152,9 @@ public sealed class TabCommandQueue : IAsyncDisposable
                 _store.Apply(s => s.WithOnlyTab(closeOthers.KeepIndex));
                 break;
 
-            case RestoreSessionCommand:
+            case RestoreSessionCommand restoreSession:
                 Log("RestoreSession");
-                await HandleRestoreSessionAsync(token).ConfigureAwait(false);
-                break;
-
-            case SaveSessionCommand:
-                Log("SaveSession");
-                await HandleSaveSessionAsync().ConfigureAwait(false);
+                await HandleRestoreSessionAsync(restoreSession, token).ConfigureAwait(false);
                 break;
 
             case ActivateWindowCommand:
@@ -169,7 +164,7 @@ public sealed class TabCommandQueue : IAsyncDisposable
         }
     }
 
-    private async Task HandleOpenFilesAsync(OpenFilesCommand command, CancellationToken token)
+    private void HandleOpenFiles(OpenFilesCommand command, CancellationToken token)
     {
         string? lastAddedPath = null;
         var shouldSelect = command.Source != TabCommandSource.SessionRestore;
@@ -196,6 +191,10 @@ public sealed class TabCommandQueue : IAsyncDisposable
             {
                 Log($"  Already open at index {existingIndex}: {filePath}");
                 lastAddedPath = filePath;
+                if (command.Source != TabCommandSource.SessionRestore)
+                {
+                    _onFileReopened?.Invoke(filePath);
+                }
                 continue;
             }
 
@@ -208,13 +207,6 @@ public sealed class TabCommandQueue : IAsyncDisposable
             _store.Apply(s => s.WithTab(tab, select: false));
             Log($"  Added tab: {filePath}");
             lastAddedPath = filePath;
-
-            if (_imageLoader is not null)
-            {
-                Log($"  Loading image: {filePath}");
-                await _imageLoader(filePath).ConfigureAwait(false);
-                Log($"  Image loaded: {filePath}");
-            }
         }
 
         if (shouldSelect && lastAddedPath is not null)
@@ -230,53 +222,53 @@ public sealed class TabCommandQueue : IAsyncDisposable
         Log($"HandleOpenFiles done. Tabs={_store.State.Tabs.Count}, Selected={_store.State.SelectedIndex}");
     }
 
-    private async Task HandleRestoreSessionAsync(CancellationToken token)
+    private async Task HandleRestoreSessionAsync(RestoreSessionCommand command, CancellationToken token)
     {
         Log("HandleRestoreSession start");
-        var session = await _sessionService.LoadSessionAsync().ConfigureAwait(false);
-        Log($"Session loaded: {session.OpenTabs.Count} tabs, activeIndex={session.ActiveTabIndex}");
-
-        _store.Apply(s => s with
+        SessionData session;
+        try
         {
-            WindowWidth = session.WindowWidth,
-            WindowHeight = session.WindowHeight,
-            WindowLeft = session.WindowLeft,
-            WindowTop = session.WindowTop,
-            IsMaximized = session.IsMaximized,
-            ZoomStepPercent = session.ZoomStepPercent
-        }, isSessionRestore: true);
+            session = await _sessionService.LoadSessionAsync().ConfigureAwait(false);
+            Log($"Session loaded: {session.OpenTabs.Count} tabs, activeIndex={session.ActiveTabIndex}");
+
+            _store.Apply(s => s with
+            {
+                WindowWidth = session.WindowWidth,
+                WindowHeight = session.WindowHeight,
+                WindowLeft = session.WindowLeft,
+                WindowTop = session.WindowTop,
+                IsMaximized = session.IsMaximized,
+                ZoomStepPercent = session.ZoomStepPercent
+            }, isSessionRestore: true);
+        }
+        finally
+        {
+            // 失敗してもウィンドウ表示を待たせ続けないよう必ず完了させる
+            command.WindowStateRestored?.TrySetResult();
+        }
 
         if (session.OpenTabs.Count > 0)
         {
-            await HandleOpenFilesAsync(
-                new OpenFilesCommand(session.OpenTabs, TabCommandSource.SessionRestore),
-                token).ConfigureAwait(false);
+            // 存在しないファイルが除外されるとインデックスがずれるため、パスで選択し直す
+            var activeIndex = session.ActiveTabIndex;
+            var activePath = activeIndex >= 0 && activeIndex < session.OpenTabs.Count
+                ? session.OpenTabs[activeIndex]
+                : null;
 
-            if (session.ActiveTabIndex >= 0 && session.ActiveTabIndex < _store.State.Tabs.Count)
+            HandleOpenFiles(new OpenFilesCommand(session.OpenTabs, TabCommandSource.SessionRestore), token);
+
+            _store.Apply(s =>
             {
-                Log($"Restoring selection to index {session.ActiveTabIndex}");
-                _store.Apply(s => s.WithSelection(session.ActiveTabIndex));
-            }
+                if (s.Tabs.Count == 0) return s;
+                var index = activePath is null ? -1 : s.Tabs.FindIndex(t => t.FilePath == activePath);
+                if (index < 0)
+                {
+                    index = Math.Clamp(activeIndex, 0, s.Tabs.Count - 1);
+                }
+                Log($"Restoring selection to index {index}");
+                return s.WithSelection(index);
+            });
         }
         Log($"HandleRestoreSession done. Tabs={_store.State.Tabs.Count}, Selected={_store.State.SelectedIndex}");
-    }
-
-    private async Task HandleSaveSessionAsync()
-    {
-        var state = _store.State;
-        Log($"SaveSession: Tabs={state.Tabs.Count}, Selected={state.SelectedIndex}");
-        var session = new SessionData
-        {
-            WindowWidth = state.WindowWidth,
-            WindowHeight = state.WindowHeight,
-            WindowLeft = state.WindowLeft,
-            WindowTop = state.WindowTop,
-            IsMaximized = state.IsMaximized,
-            OpenTabs = state.Tabs.Select(t => t.FilePath).ToList(),
-            ActiveTabIndex = state.SelectedIndex >= 0 ? state.SelectedIndex : 0,
-            ZoomStepPercent = state.ZoomStepPercent
-        };
-
-        await _sessionService.SaveSessionAsync(session).ConfigureAwait(false);
     }
 }

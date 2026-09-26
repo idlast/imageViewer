@@ -247,7 +247,28 @@ public partial class MainWindow : Window
 
     private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
     {
-        ViewModel.SaveSession();
+        // 最大化・最小化中は Left/Width などが通常時のサイズを表さないため RestoreBounds を使う
+        var bounds = WindowState == WindowState.Normal
+            ? new Rect(Left, Top, ActualWidth, ActualHeight)
+            : RestoreBounds;
+        if (WindowState == WindowState.Maximized)
+        {
+            bounds = MonitorBounds.MoveOntoCurrentMonitor(this, bounds);
+        }
+        ViewModel.SaveSession(bounds);
+    }
+
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        ViewModel.RefreshSelectedTab();
+    }
+
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (WindowState != WindowState.Minimized)
+        {
+            ViewModel.IsMaximized = WindowState == WindowState.Maximized;
+        }
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)

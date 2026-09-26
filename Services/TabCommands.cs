@@ -16,9 +16,8 @@ public sealed record CloseTabsToRightCommand(int Index) : TabCommand;
 
 public sealed record CloseOtherTabsCommand(int KeepIndex) : TabCommand;
 
-public sealed record RestoreSessionCommand : TabCommand;
-
-public sealed record SaveSessionCommand : TabCommand;
+/// <param name="WindowStateRestored">ウィンドウ位置・サイズ・最大化状態を反映し終えた時点で完了する</param>
+public sealed record RestoreSessionCommand(TaskCompletionSource? WindowStateRestored = null) : TabCommand;
 
 public sealed record ActivateWindowCommand : TabCommand;
 

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ImgViewer.Models;
 using ImgViewer.Services;
 using Microsoft.Win32;
 
@@ -13,6 +14,7 @@ public partial class MainViewModel : ObservableObject
 {
     private static readonly string LogFilePath = Path.Combine(Path.GetTempPath(), "ImgViewer_viewmodel.log");
     private readonly IImageService _imageService;
+    private readonly ISessionService _sessionService;
     private readonly TabStateStore _store;
     private readonly TabCommandQueue _commandQueue;
     private readonly Dispatcher _dispatcher;
@@ -64,6 +66,7 @@ public partial class MainViewModel : ObservableObject
         Dispatcher dispatcher)
     {
         _imageService = imageService;
+        _sessionService = sessionService;
         _store = store;
         _dispatcher = dispatcher;
 
@@ -71,8 +74,8 @@ public partial class MainViewModel : ObservableObject
             store,
             sessionService,
             imageService,
-            imageLoader: LoadImageForTabAsync,
-            activateWindow: ActivateWindow);
+            activateWindow: ActivateWindow,
+            onFileReopened: RefreshTabByPath);
 
         _store.StateChanged += OnStateChanged;
         _commandQueue.Start();
@@ -159,22 +162,21 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private void ZoomIn()
+    /// <summary>ウィンドウに戻ってきたとき、表示中の画像が書き換えられていれば読み込み直す</summary>
+    public void RefreshSelectedTab()
     {
-        SelectedTab?.ZoomIn();
+        _ = SelectedTab?.RefreshAsync();
     }
 
-    [RelayCommand]
-    private void ZoomOut()
+    private void RefreshTabByPath(string filePath)
     {
-        SelectedTab?.ZoomOut();
-    }
-
-    [RelayCommand]
-    private void ResetZoom()
-    {
-        SelectedTab?.ResetZoom();
+        _dispatcher.InvokeAsync(() =>
+        {
+            if (_tabViewModels.TryGetValue(filePath, out var vm))
+            {
+                _ = vm.RefreshAsync();
+            }
+        });
     }
 
     public void MoveTab(int fromIndex, int toIndex)
@@ -190,28 +192,46 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    public void SaveSession()
+    /// <summary>
+    /// 終了時に呼ばれる。キューを経由するとプロセス終了までに書き込まれない可能性があるため同期で保存する。
+    /// </summary>
+    public void SaveSession(Rect restoreBounds)
     {
+        var bounds = restoreBounds.IsEmpty
+            ? new Rect(WindowLeft, WindowTop, WindowWidth, WindowHeight)
+            : restoreBounds;
         var state = _store.State;
-        _store.Apply(s => s with
+        Log($"SaveSession: Tabs={state.Tabs.Count}, Selected={state.SelectedIndex}, Bounds={bounds}, Maximized={IsMaximized}");
+
+        var session = new SessionData
         {
-            WindowWidth = WindowWidth,
-            WindowHeight = WindowHeight,
-            WindowLeft = WindowLeft,
-            WindowTop = WindowTop,
+            WindowWidth = bounds.Width,
+            WindowHeight = bounds.Height,
+            WindowLeft = bounds.Left,
+            WindowTop = bounds.Top,
             IsMaximized = IsMaximized,
+            OpenTabs = state.Tabs.Select(t => t.FilePath).ToList(),
+            ActiveTabIndex = state.SelectedIndex >= 0 ? state.SelectedIndex : 0,
             ZoomStepPercent = ZoomStepPercent
-        });
-        Enqueue(new SaveSessionCommand());
+        };
+
+        try
+        {
+            _sessionService.SaveSession(session);
+        }
+        catch (Exception ex)
+        {
+            Log($"SaveSession failed: {ex.Message}");
+        }
     }
 
     partial void OnSelectedTabChanged(ImageTabViewModel? value)
     {
         var tabName = value?.FileName ?? "<null>";
         Log($"OnSelectedTabChanged: value={tabName}, applyingState={_isApplyingStateSelection}");
-        if (value is not null && value.Image is null && !value.IsLoading)
+        if (value is not null)
         {
-            _ = value.LoadImageAsync();
+            _ = value.RefreshAsync();
         }
 
         if (_isApplyingStateSelection || value is null)
@@ -291,6 +311,7 @@ public partial class MainViewModel : ObservableObject
                     ZoomStepPercent = ZoomStepPercent
                 };
                 _tabViewModels[tabState.FilePath] = vm;
+                _ = vm.LoadThumbnailAsync();
             }
 
             var currentIndex = Tabs.IndexOf(vm);
@@ -354,17 +375,6 @@ public partial class MainViewModel : ObservableObject
         {
             tab.IsActive = tab == activeTab;
         }
-    }
-
-    private async Task LoadImageForTabAsync(string filePath)
-    {
-        await _dispatcher.InvokeAsync(async () =>
-        {
-            if (_tabViewModels.TryGetValue(filePath, out var vm))
-            {
-                await vm.LoadImageAsync();
-            }
-        });
     }
 
     private void ActivateWindow()

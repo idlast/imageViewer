@@ -12,6 +12,8 @@
                 <MenuItem Header="ウィンドウに合わせる(_F)"
                           Click="OnFitToWindowClick"
                           IsEnabled="{Binding IsZoomed}"/>
+                <MenuItem Header="エクスプローラーで表示(_E)"
+                          Command="{Binding ShowInExplorerCommand}"/>
             </ContextMenu>
         </Grid.ContextMenu>
         <!-- ローディング表示 -->

@@ -19,7 +19,7 @@ public class SessionService : ISessionService
 
     public bool SessionExists => File.Exists(SessionFilePath);
 
-    public async Task SaveSessionAsync(SessionData session)
+    public void SaveSession(SessionData session)
     {
         session.ZoomStepPercent = NormalizeZoomStep(session.ZoomStepPercent);
         var directory = Path.GetDirectoryName(SessionFilePath)!;
@@ -28,10 +28,14 @@ public class SessionService : ISessionService
             Directory.CreateDirectory(directory);
         }
 
+        // 書き込み途中で終了しても session.json が壊れないよう、一時ファイルに書いてから置き換える
+        var tempPath = SessionFilePath + ".tmp";
         var json = JsonSerializer.Serialize(session, JsonOptions);
-        await File.WriteAllTextAsync(SessionFilePath, json);
+        File.WriteAllText(tempPath, json);
+        File.Move(tempPath, SessionFilePath, overwrite: true);
     }
 
+    // タブの存在確認は時間がかかることがあるため、ここでは行わない（呼び出し側で行う）
     public async Task<SessionData> LoadSessionAsync()
     {
         if (!SessionExists)
@@ -39,21 +43,23 @@ public class SessionService : ISessionService
             return new SessionData();
         }
 
-        var json = await File.ReadAllTextAsync(SessionFilePath);
-        var session = JsonSerializer.Deserialize<SessionData>(json);
+        SessionData? session;
+        try
+        {
+            var json = await File.ReadAllTextAsync(SessionFilePath);
+            session = JsonSerializer.Deserialize<SessionData>(json);
+        }
+        catch (JsonException)
+        {
+            return new SessionData();
+        }
 
         if (session is null)
         {
             return new SessionData();
         }
 
-        session.OpenTabs = session.OpenTabs.Where(File.Exists).ToList();
         session.ZoomStepPercent = NormalizeZoomStep(session.ZoomStepPercent);
-
-        if (session.ActiveTabIndex >= session.OpenTabs.Count)
-        {
-            session.ActiveTabIndex = Math.Max(0, session.OpenTabs.Count - 1);
-        }
 
         ValidateWindowBounds(session);
 
@@ -70,13 +76,16 @@ public class SessionService : ISessionService
 
     private static void ValidateWindowBounds(SessionData session)
     {
+        // プライマリより左・上のモニタは座標が負になるため、仮想スクリーンの左上を基準にする
+        var screenLeft = System.Windows.SystemParameters.VirtualScreenLeft;
+        var screenTop = System.Windows.SystemParameters.VirtualScreenTop;
         var screenWidth = System.Windows.SystemParameters.VirtualScreenWidth;
         var screenHeight = System.Windows.SystemParameters.VirtualScreenHeight;
 
         session.WindowWidth = Math.Max(200, Math.Min(session.WindowWidth, screenWidth));
         session.WindowHeight = Math.Max(200, Math.Min(session.WindowHeight, screenHeight));
-        session.WindowLeft = Math.Max(0, Math.Min(session.WindowLeft, screenWidth - 100));
-        session.WindowTop = Math.Max(0, Math.Min(session.WindowTop, screenHeight - 100));
+        session.WindowLeft = Math.Max(screenLeft, Math.Min(session.WindowLeft, screenLeft + screenWidth - 100));
+        session.WindowTop = Math.Max(screenTop, Math.Min(session.WindowTop, screenTop + screenHeight - 100));
     }
 
     private static int NormalizeZoomStep(int value)

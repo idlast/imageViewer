@@ -1,6 +1,9 @@
+using System.Diagnostics;
+using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using ImgViewer.Models;
 using ImgViewer.Services;
 
@@ -9,6 +12,8 @@ namespace ImgViewer.ViewModels;
 public partial class ImageTabViewModel : ObservableObject
 {
     private readonly IImageService _imageService;
+    private FileStamp? _loadedStamp;
+    private bool _isReloading;
 
     [ObservableProperty]
     private BitmapSource? _image;
@@ -51,15 +56,18 @@ public partial class ImageTabViewModel : ObservableObject
 
     public async Task LoadImageAsync()
     {
-        if (Image is not null) return;
+        if (Image is not null || IsLoading) return;
 
         IsLoading = true;
         LoadError = null;
 
         try
         {
+            // 読み込み前に取得しておき、読み込み中に書き換えられた場合も次の RefreshAsync で検知できるようにする
+            var stamp = await Task.Run(() => FileStamp.TryGet(FilePath));
             Image = await _imageService.LoadImageAsync(FilePath);
-            Thumbnail = CreateThumbnail(Image);
+            _loadedStamp = stamp;
+            Thumbnail ??= CreateThumbnail(Image);
         }
         catch (Exception ex)
         {
@@ -71,16 +79,78 @@ public partial class ImageTabViewModel : ObservableObject
         }
     }
 
-    public void ZoomIn()
+    /// <summary>
+    /// まだ読み込んでいなければ読み込み、読み込み済みでファイルが書き換えられていれば読み込み直す。
+    /// </summary>
+    public async Task RefreshAsync()
     {
-        ZoomLevel = Math.Min(10.0, ZoomLevel * GetZoomStepFactor());
-        IsZoomed = true;
+        if (IsLoading || _isReloading) return;
+
+        if (Image is null)
+        {
+            await LoadImageAsync();
+            return;
+        }
+
+        _isReloading = true;
+        try
+        {
+            var stamp = await Task.Run(() => FileStamp.TryGet(FilePath));
+            if (stamp is null || stamp == _loadedStamp) return;
+
+            var image = await _imageService.LoadImageAsync(FilePath);
+            if (Image is null || image.PixelWidth != Image.PixelWidth || image.PixelHeight != Image.PixelHeight)
+            {
+                ResetZoom();
+            }
+
+            Image = image;
+            _loadedStamp = stamp;
+            Thumbnail = CreateThumbnail(image);
+            LoadError = null;
+        }
+        catch
+        {
+            // 保存途中などで読めなかった場合は今の画像を表示したままにし、次回また確認する
+        }
+        finally
+        {
+            _isReloading = false;
+        }
     }
 
-    public void ZoomOut()
+    [RelayCommand]
+    private void ShowInExplorer()
     {
-        ZoomLevel = Math.Max(0.1, ZoomLevel / GetZoomStepFactor());
-        IsZoomed = true;
+        if (File.Exists(FilePath))
+        {
+            Process.Start("explorer.exe", $"/select,\"{FilePath}\"");
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(FilePath);
+        if (Directory.Exists(directory))
+        {
+            Process.Start("explorer.exe", $"\"{directory}\"");
+        }
+    }
+
+    /// <summary>
+    /// タブ見出し用の縮小画像だけを読み込む。本体の画像はタブが選択されたときに読み込む。
+    /// </summary>
+    public async Task LoadThumbnailAsync()
+    {
+        if (Thumbnail is not null) return;
+
+        try
+        {
+            var thumbnail = await _imageService.LoadThumbnailAsync(FilePath);
+            Thumbnail ??= thumbnail;
+        }
+        catch
+        {
+            // サムネイルが作れなくても本体の読み込み時にエラー表示されるため無視する
+        }
     }
 
     public void ResetZoom()
@@ -107,12 +177,6 @@ public partial class ImageTabViewModel : ObservableObject
         {
             ResetScrollOffsets();
         }
-    }
-
-    private double GetZoomStepFactor()
-    {
-        var percent = Math.Clamp(ZoomStepPercent, 1, 100);
-        return 1.0 + (percent / 100.0);
     }
 
     private static BitmapSource? CreateThumbnail(BitmapSource? source)
