@@ -54,3 +54,11 @@ $RECYCLE.BIN/
 
 # Application data
 *.log
+
+# AI アシスタント向けの個人設定
+CLAUDE.md
+AGENTS.md
+.github/copilot-instructions.md
+
+# 作業用
+tmp.txt
