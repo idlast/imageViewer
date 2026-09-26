@@ -1,4 +1,4 @@
-; Inno Setup Script for ImgViewer
+﻿; Inno Setup Script for ImgViewer
 ; インストーラ生成スクリプト
 
 #define MyAppName "ImgViewer"
